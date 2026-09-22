@@ -1,11 +1,21 @@
 import SwiftUI
+import AppKit
 
 @main
 struct UsageGridApp: App {
+    init() {
+        NSApplication.shared.setActivationPolicy(.accessory)
+    }
+
     var body: some Scene {
-        WindowGroup("UsageGrid") {
-            Text("UsageGrid")
-                .frame(minWidth: 320, minHeight: 200)
+        MenuBarExtra("UsageGrid", systemImage: "square.grid.3x3") {
+            MenuBarView()
+        }
+        .menuBarExtraStyle(.window)
+
+        Settings {
+            Text("UsageGrid Settings")
+                .padding()
         }
     }
 }
