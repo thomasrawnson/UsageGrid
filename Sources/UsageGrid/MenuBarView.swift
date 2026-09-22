@@ -6,45 +6,53 @@ struct MenuBarView: View {
     @State private var codex = CodexRefreshState()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("UsageGrid")
-                    .font(.headline)
-                Spacer()
-                if codex.isRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("Refreshing Codex usage")
-                } else {
-                    Button(action: refreshCodex) {
-                        Image(systemName: "arrow.clockwise")
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text("UsageGrid")
+                        .font(.headline)
+                    Spacer()
+                    if codex.isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 24, height: 24)
+                            .accessibilityLabel("Refreshing Codex usage")
+                    } else {
+                        Button(action: refreshCodex) {
+                            Image(systemName: "arrow.clockwise")
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Refresh usage")
+                        .help("Refresh Codex usage")
                     }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Refresh usage")
-                    .help("Refresh Codex usage")
+                }
+                if let lastUpdated = codex.lastUpdated {
+                    HStack(spacing: 4) {
+                        Text("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
+                        if codex.refreshFailed {
+                            Text("· Refresh failed")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
 
             if let codexWindows = codex.windows {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Codex").fontWeight(.medium)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Codex")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
                     ForEach(codexWindows, id: \.id) { window in
                         CodexWindowRow(window: window)
-                    }
-                    if let lastUpdated = codex.lastUpdated {
-                        HStack(spacing: 4) {
-                            Text("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
-                            if codex.refreshFailed {
-                                Text("· Refresh failed")
-                            }
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                     }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Codex").fontWeight(.medium)
+                    Text("Codex")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
                     Text(codex.refreshFailed ? "Usage unavailable" : "Loading usage…")
                         .foregroundStyle(.secondary)
                     if codex.refreshFailed {
@@ -55,9 +63,14 @@ struct MenuBarView: View {
                 }
             }
 
+            Divider()
+
             VStack(alignment: .leading, spacing: 5) {
-                Text("Claude").fontWeight(.medium)
+                Text("Claude")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
                 Text("Usage unavailable")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                 Text("Live usage source unavailable")
                     .font(.caption)
@@ -76,7 +89,7 @@ struct MenuBarView: View {
                 }
             }
         }
-        .padding()
+        .padding(14)
         .frame(width: 320)
         .onAppear(perform: refreshCodex)
     }
@@ -120,14 +133,16 @@ private struct CodexWindowRow: View {
     let window: CodexUsageWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(window.label).font(.subheadline)
+                Text(window.label).font(.callout)
                 Spacer()
-                Text(window.usedPercentage, format: .number.precision(.fractionLength(0))) + Text("%")
+                (Text(window.usedPercentage, format: .number.precision(.fractionLength(0))) + Text("%"))
+                    .monospacedDigit()
             }
             ProgressView(value: window.usedPercentage, total: 100)
                 .accessibilityLabel("Codex \(window.label) usage")
+                .accessibilityValue("\(Int(window.usedPercentage.rounded())) percent used")
             Text(window.resetText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
