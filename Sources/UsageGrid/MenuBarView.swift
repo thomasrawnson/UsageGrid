@@ -3,27 +3,51 @@ import AppKit
 
 struct MenuBarView: View {
     @Environment(\.openSettings) private var openSettings
-    @State private var codexWindows: [CodexUsageWindow]?
-    @State private var isReadingCodex = true
+    @State private var codex = CodexRefreshState()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("UsageGrid")
-                .font(.headline)
+            HStack {
+                Text("UsageGrid")
+                    .font(.headline)
+                Spacer()
+                if codex.isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Refreshing Codex usage")
+                } else {
+                    Button(action: refreshCodex) {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Refresh usage")
+                    .help("Refresh Codex usage")
+                }
+            }
 
-            if let codexWindows {
+            if let codexWindows = codex.windows {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Codex").fontWeight(.medium)
                     ForEach(codexWindows, id: \.id) { window in
                         CodexWindowRow(window: window)
                     }
+                    if let lastUpdated = codex.lastUpdated {
+                        HStack(spacing: 4) {
+                            Text("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
+                            if codex.refreshFailed {
+                                Text("· Refresh failed")
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Codex").fontWeight(.medium)
-                    Text(isReadingCodex ? "Reading Codex usage…" : "Usage unavailable")
+                    Text(codex.refreshFailed ? "Usage unavailable" : "Loading usage…")
                         .foregroundStyle(.secondary)
-                    if !isReadingCodex {
+                    if codex.refreshFailed {
                         Text("Could not read Codex usage")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -54,13 +78,40 @@ struct MenuBarView: View {
         }
         .padding()
         .frame(width: 320)
-        .onAppear {
-            codexWindows = nil
-            isReadingCodex = true
-            Task {
-                codexWindows = await CodexUsageReader.read()
-                isReadingCodex = false
-            }
+        .onAppear(perform: refreshCodex)
+    }
+
+    private func refreshCodex() {
+        guard codex.start() else { return }
+        Task {
+            let windows = await CodexUsageReader.read()
+            codex.finish(with: windows, at: Date())
+        }
+    }
+}
+
+struct CodexRefreshState {
+    private(set) var windows: [CodexUsageWindow]?
+    private(set) var isRefreshing = false
+    private(set) var refreshFailed = false
+    private(set) var lastUpdated: Date?
+
+    mutating func start() -> Bool {
+        guard !isRefreshing else { return false }
+        isRefreshing = true
+        refreshFailed = false
+        return true
+    }
+
+    mutating func finish(with newWindows: [CodexUsageWindow]?, at date: Date) {
+        guard isRefreshing else { return }
+        isRefreshing = false
+        if let newWindows {
+            windows = newWindows
+            lastUpdated = date
+            refreshFailed = false
+        } else {
+            refreshFailed = true
         }
     }
 }

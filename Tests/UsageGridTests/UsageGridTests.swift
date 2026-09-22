@@ -6,6 +6,54 @@ import Foundation
     #expect(String(describing: UsageGridApp.self) == "UsageGridApp")
 }
 
+@Test func codexRefreshStatePreservesSuccessfulData() {
+    var state = CodexRefreshState()
+    let first = [CodexUsageWindow(id: "primary", label: "5-hour limit", usedPercentage: 42, resetText: "Resets in 2h", durationMinutes: 300)]
+    let second = [CodexUsageWindow(id: "primary", label: "5-hour limit", usedPercentage: 48, resetText: "Resets in 1h", durationMinutes: 300)]
+    let firstDate = Date(timeIntervalSince1970: 1_000)
+    let secondDate = Date(timeIntervalSince1970: 2_000)
+
+    #expect(state.windows == nil)
+    let started = state.start()
+    let overlapping = state.start()
+    #expect(started)
+    #expect(!overlapping)
+    state.finish(with: first, at: firstDate)
+    #expect(state.windows?.first?.usedPercentage == 42)
+    #expect(state.lastUpdated == firstDate)
+    #expect(!state.refreshFailed)
+
+    let refreshStarted = state.start()
+    #expect(refreshStarted)
+    #expect(state.windows?.first?.usedPercentage == 42)
+    state.finish(with: nil, at: secondDate)
+    #expect(state.windows?.first?.usedPercentage == 42)
+    #expect(state.lastUpdated == firstDate)
+    #expect(state.refreshFailed)
+
+    let recoveryStarted = state.start()
+    #expect(recoveryStarted)
+    #expect(!state.refreshFailed)
+    state.finish(with: second, at: secondDate)
+    #expect(state.windows?.first?.usedPercentage == 48)
+    #expect(state.lastUpdated == secondDate)
+    #expect(!state.refreshFailed)
+}
+
+@Test func codexRefreshStateHandlesFirstLoadFailure() {
+    var state = CodexRefreshState()
+    let started = state.start()
+    #expect(started)
+    state.finish(with: nil, at: Date(timeIntervalSince1970: 1_000))
+    #expect(state.windows == nil)
+    #expect(state.lastUpdated == nil)
+    #expect(state.refreshFailed)
+    #expect(!state.isRefreshing)
+    let retryStarted = state.start()
+    #expect(retryStarted)
+    #expect(!state.refreshFailed)
+}
+
 @Test func codexRateLimitParsing() {
     let now = Date(timeIntervalSince1970: 1_000)
     let valid = Data(#"{"result":{"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":42,"windowDurationMins":300,"resetsAt":5920},"secondary":{"usedPercent":18,"windowDurationMins":10080,"resetsAt":371800}}}}}"#.utf8)
