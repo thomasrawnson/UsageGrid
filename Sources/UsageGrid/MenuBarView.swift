@@ -3,7 +3,7 @@ import AppKit
 
 struct MenuBarView: View {
     @Environment(\.openSettings) private var openSettings
-    @State private var codexUsage: ProviderUsage?
+    @State private var codexWindows: [CodexUsageWindow]?
     @State private var isReadingCodex = true
 
     private let claudeUsage = ProviderUsage(name: "Claude", usedPercentage: 18, resetText: "Resets in 2h")
@@ -19,8 +19,13 @@ struct MenuBarView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let codexUsage {
-                UsageRow(usage: codexUsage)
+            if let codexWindows {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Codex").fontWeight(.medium)
+                    ForEach(codexWindows, id: \.id) { window in
+                        CodexWindowRow(window: window)
+                    }
+                }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Codex").fontWeight(.medium)
@@ -51,12 +56,31 @@ struct MenuBarView: View {
         .padding()
         .frame(width: 320)
         .onAppear {
-            codexUsage = nil
+            codexWindows = nil
             isReadingCodex = true
             Task {
-                codexUsage = await CodexUsageReader.read()
+                codexWindows = await CodexUsageReader.read()
                 isReadingCodex = false
             }
+        }
+    }
+}
+
+private struct CodexWindowRow: View {
+    let window: CodexUsageWindow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(window.label).font(.subheadline)
+                Spacer()
+                Text(window.usedPercentage, format: .number.precision(.fractionLength(0))) + Text("%")
+            }
+            ProgressView(value: window.usedPercentage, total: 100)
+                .accessibilityLabel("Codex \(window.label) usage")
+            Text(window.resetText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 }

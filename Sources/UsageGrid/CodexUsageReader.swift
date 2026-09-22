@@ -1,46 +1,85 @@
 import Darwin
 import Foundation
 
+struct CodexUsageWindow {
+    let id: String
+    let label: String
+    let usedPercentage: Double
+    let resetText: String
+    let durationMinutes: Int
+}
+
 enum CodexUsageReader {
-    static func read() async -> ProviderUsage? {
+    static func read() async -> [CodexUsageWindow]? {
         await Task.detached(priority: .userInitiated) {
             readFromAppServer()
         }.value
     }
 
-    static func parse(_ data: Data, now: Date) -> ProviderUsage? {
+    static func parse(_ data: Data, now: Date) -> [CodexUsageWindow]? {
         guard
             let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let result = message["result"] as? [String: Any],
             let buckets = result["rateLimitsByLimitId"] as? [String: Any],
-            let codex = buckets["codex"] as? [String: Any],
-            let primary = codex["primary"] as? [String: Any],
-            let used = primary["usedPercent"] as? Double,
-            used.isFinite
+            let codex = buckets["codex"] as? [String: Any]
         else { return nil }
 
-        let resetText: String
-        if let epoch = primary["resetsAt"] as? Double,
-           epoch.isFinite,
-           abs(epoch - now.timeIntervalSince1970) <= 366 * 24 * 60 * 60 {
-            let minutes = max(0, Int(ceil((epoch - now.timeIntervalSince1970) / 60)))
-            if minutes == 0 {
-                resetText = "Reset due"
-            } else if minutes >= 60 {
-                let hours = minutes / 60
-                let remainder = minutes % 60
-                resetText = remainder == 0 ? "Resets in \(hours)h" : "Resets in \(hours)h \(remainder)m"
-            } else {
-                resetText = "Resets in \(minutes)m"
+        let windows = ["primary", "secondary"]
+            .compactMap { key -> CodexUsageWindow? in
+                guard let value = codex[key] as? [String: Any] else { return nil }
+                return parseWindow(value, id: key, now: now)
             }
-        } else {
-            resetText = "Reset unavailable"
-        }
-
-        return ProviderUsage(name: "Codex", usedPercentage: min(100, max(0, used)), resetText: resetText)
+            .sorted { $0.durationMinutes < $1.durationMinutes }
+        return windows.isEmpty ? nil : windows
     }
 
-    private static func readFromAppServer() -> ProviderUsage? {
+    private static func parseWindow(_ value: [String: Any], id: String, now: Date) -> CodexUsageWindow? {
+        guard let used = value["usedPercent"] as? Double, used.isFinite,
+              let duration = value["windowDurationMins"] as? Int, duration > 0 else { return nil }
+
+        let label: String
+        if duration == 10_080 {
+            label = "Weekly limit"
+        } else if duration.isMultiple(of: 1_440) {
+            label = "\(duration / 1_440)-day limit"
+        } else if duration.isMultiple(of: 60) {
+            label = "\(duration / 60)-hour limit"
+        } else {
+            label = "\(duration)-minute limit"
+        }
+
+        return CodexUsageWindow(
+            id: id,
+            label: label,
+            usedPercentage: min(100, max(0, used)),
+            resetText: resetText(value["resetsAt"] as? Double, now: now),
+            durationMinutes: duration
+        )
+    }
+
+    private static func resetText(_ epoch: Double?, now: Date) -> String {
+        guard let epoch, epoch.isFinite,
+              abs(epoch - now.timeIntervalSince1970) <= 366 * 24 * 60 * 60 else {
+            return "Reset unavailable"
+        }
+        let seconds = max(0, epoch - now.timeIntervalSince1970)
+        if seconds == 0 { return "Reset due" }
+        if seconds >= 24 * 60 * 60 {
+            let hours = Int(ceil(seconds / 3_600))
+            let days = hours / 24
+            let remainingHours = hours % 24
+            return remainingHours == 0 ? "Resets in \(days)d" : "Resets in \(days)d \(remainingHours)h"
+        }
+        let minutes = Int(ceil(seconds / 60))
+        if minutes >= 60 {
+            let hours = minutes / 60
+            let remainingMinutes = minutes % 60
+            return remainingMinutes == 0 ? "Resets in \(hours)h" : "Resets in \(hours)h \(remainingMinutes)m"
+        }
+        return "Resets in \(minutes)m"
+    }
+
+    private static func readFromAppServer() -> [CodexUsageWindow]? {
         let path = "/Applications/ChatGPT.app/Contents/Resources/codex"
         guard FileManager.default.isExecutableFile(atPath: path) else { return nil }
 
