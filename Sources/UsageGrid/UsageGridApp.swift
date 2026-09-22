@@ -15,8 +15,7 @@ struct UsageGridApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            Text("UsageGrid Settings")
-                .padding()
+            SettingsView()
         }
     }
 }

@@ -9,6 +9,7 @@
 		A10000000000000000000001 /* UsageGridApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* UsageGridApp.swift */; };
 		A10000000000000000000002 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* MenuBarView.swift */; };
 		A10000000000000000000003 /* CodexUsageReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* CodexUsageReader.swift */; };
+		A10000000000000000000004 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000014 /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -16,6 +17,7 @@
 		A10000000000000000000011 /* UsageGridApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageGridApp.swift; sourceTree = "<group>"; };
 		A10000000000000000000012 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		A10000000000000000000013 /* CodexUsageReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexUsageReader.swift; sourceTree = "<group>"; };
+		A10000000000000000000014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -33,6 +35,7 @@
 				A10000000000000000000011 /* UsageGridApp.swift */,
 				A10000000000000000000012 /* MenuBarView.swift */,
 				A10000000000000000000013 /* CodexUsageReader.swift */,
+				A10000000000000000000014 /* SettingsView.swift */,
 			);
 			name = UsageGrid;
 			path = Sources/UsageGrid;
@@ -89,6 +92,7 @@
 				A10000000000000000000001 /* UsageGridApp.swift in Sources */,
 				A10000000000000000000002 /* MenuBarView.swift in Sources */,
 				A10000000000000000000003 /* CodexUsageReader.swift in Sources */,
+				A10000000000000000000004 /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -99,9 +103,11 @@
 			CLANG_ENABLE_MODULES = YES;
 			CODE_SIGN_IDENTITY = "-";
 			CODE_SIGN_STYLE = Automatic;
+			CURRENT_PROJECT_VERSION = 1;
 			GENERATE_INFOPLIST_FILE = YES;
 			INFOPLIST_KEY_LSUIElement = YES;
 			MACOSX_DEPLOYMENT_TARGET = 14.0;
+			MARKETING_VERSION = 0.1.0;
 			PRODUCT_BUNDLE_IDENTIFIER = com.plutonightlabs.UsageGrid;
 			PRODUCT_NAME = "$(TARGET_NAME)";
 			SDKROOT = macosx;
@@ -112,9 +118,11 @@
 			CLANG_ENABLE_MODULES = YES;
 			CODE_SIGN_IDENTITY = "-";
 			CODE_SIGN_STYLE = Automatic;
+			CURRENT_PROJECT_VERSION = 1;
 			GENERATE_INFOPLIST_FILE = YES;
 			INFOPLIST_KEY_LSUIElement = YES;
 			MACOSX_DEPLOYMENT_TARGET = 14.0;
+			MARKETING_VERSION = 0.1.0;
 			PRODUCT_BUNDLE_IDENTIFIER = com.plutonightlabs.UsageGrid;
 			PRODUCT_NAME = "$(TARGET_NAME)";
 			SDKROOT = macosx;
