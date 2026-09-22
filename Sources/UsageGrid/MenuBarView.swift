@@ -6,18 +6,10 @@ struct MenuBarView: View {
     @State private var codexWindows: [CodexUsageWindow]?
     @State private var isReadingCodex = true
 
-    private let claudeUsage = ProviderUsage(name: "Claude", usedPercentage: 18, resetText: "Resets in 2h")
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("UsageGrid")
-                    .font(.headline)
-                Spacer()
-                Text("Claude: mock")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text("UsageGrid")
+                .font(.headline)
 
             if let codexWindows {
                 VStack(alignment: .leading, spacing: 10) {
@@ -39,7 +31,14 @@ struct MenuBarView: View {
                 }
             }
 
-            UsageRow(usage: claudeUsage)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Claude").fontWeight(.medium)
+                Text("Usage unavailable")
+                    .foregroundStyle(.secondary)
+                Text("Live usage source unavailable")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Divider()
 
@@ -79,29 +78,6 @@ private struct CodexWindowRow: View {
             ProgressView(value: window.usedPercentage, total: 100)
                 .accessibilityLabel("Codex \(window.label) usage")
             Text(window.resetText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-private struct UsageRow: View {
-    let usage: ProviderUsage
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(usage.name)
-                    .fontWeight(.medium)
-                Spacer()
-                Text(usage.usedPercentage, format: .number.precision(.fractionLength(0)))
-                    + Text("%")
-            }
-
-            ProgressView(value: usage.usedPercentage, total: 100)
-                .accessibilityLabel("\(usage.name) usage")
-
-            Text("\(usage.statusText) · \(usage.resetText)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

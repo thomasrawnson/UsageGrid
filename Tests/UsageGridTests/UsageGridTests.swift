@@ -6,11 +6,6 @@ import Foundation
     #expect(String(describing: UsageGridApp.self) == "UsageGridApp")
 }
 
-@Test func usageStatusBoundary() {
-    #expect(ProviderUsage(name: "Codex", usedPercentage: 79.9, resetText: "").statusText == "Healthy")
-    #expect(ProviderUsage(name: "Codex", usedPercentage: 80, resetText: "").statusText == "Getting high")
-}
-
 @Test func codexRateLimitParsing() {
     let now = Date(timeIntervalSince1970: 1_000)
     let valid = Data(#"{"result":{"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":42,"windowDurationMins":300,"resetsAt":5920},"secondary":{"usedPercent":18,"windowDurationMins":10080,"resetsAt":371800}}}}}"#.utf8)
