@@ -1,6 +1,12 @@
 # UsageGrid
 
-Native macOS utility. The current baseline is a minimal SwiftUI app executable and one unit-test target. Product behavior is specified in `docs/PRODUCT-SPEC.md`; the task queue is in `docs/EXECUTION.md`.
+Native macOS menu-bar utility. Product behavior is specified in `docs/PRODUCT-SPEC.md`; the task queue is in `docs/EXECUTION.md`.
+
+## Current development
+
+Open `UsageGrid.xcodeproj` in Xcode 27 and run the shared `UsageGrid` scheme for the macOS 14+ menu-bar app. Its bundle identifier is `com.plutonightlabs.UsageGrid`; `LSUIElement` keeps it out of the Dock. Debug launches assert that `Bundle.main.bundleIdentifier` matches. The project builds the canonical files in `Sources/UsageGrid` and uses ad hoc local signing.
+
+The Swift package remains for command-line `swift build` and `swift test` with the existing parser tests. It uses those same source files; its executable is not the distributable app bundle. To validate the app target, run `xcodebuild -project UsageGrid.xcodeproj -scheme UsageGrid -destination 'platform=macOS' -derivedDataPath DerivedData ARCHS=arm64 build`. `DerivedData` and Xcode user state are ignored by Git.
 
 ## T01 repository and Mac baseline
 
@@ -11,4 +17,4 @@ Native macOS utility. The current baseline is a minimal SwiftUI app executable a
 
 From this directory, run `swift build` and `swift test`. On this host, `swift build` passed (with Command Line Tools linker-search-path warnings). `swift test` compiled the app but failed compiling the test target because the Command Line Tools installation could not find `TestingMacros.TestDeclarationMacro`. The initial sandboxed test attempt also hit compiler-cache permissions; an unrestricted retry isolated the missing macro plugin. These checks establish a command-line executable build, not a packaged `.app` or Xcode build.
 
-Mac follow-up: install a full Xcode release whose Swift compiler matches its macOS SDK, select it with `xcode-select`, run `xcodebuild -version`, `swift build`, and `swift test`, then open `Package.swift` in Xcode and build/run the `UsageGrid` scheme. Confirm launch and window display before treating the app baseline as fully verified. Menu-bar behavior belongs to T05.
+The full Xcode 27 toolchain was installed after this initial check. The current app target and commands are described above.

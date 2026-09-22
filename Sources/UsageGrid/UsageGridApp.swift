@@ -1,10 +1,11 @@
 import SwiftUI
-import AppKit
 
 @main
 struct UsageGridApp: App {
     init() {
-        NSApplication.shared.setActivationPolicy(.accessory)
+        #if DEBUG && !SWIFT_PACKAGE
+        assert(Bundle.main.bundleIdentifier == "com.plutonightlabs.UsageGrid")
+        #endif
     }
 
     var body: some Scene {
