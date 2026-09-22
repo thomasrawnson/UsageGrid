@@ -2,5 +2,13 @@
 .swiftpm/
 .DS_Store
 DerivedData/
+build/
+*.xcarchive/
+*.app/
+*.dmg
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
 **/xcuserdata/
 **/*.xcuserstate

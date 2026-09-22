@@ -8,6 +8,19 @@ Open `UsageGrid.xcodeproj` in Xcode 27 and run the shared `UsageGrid` scheme for
 
 The Swift package remains for command-line `swift build` and `swift test` with the existing parser tests. It uses those same source files; its executable is not the distributable app bundle. To validate the app target, run `xcodebuild -project UsageGrid.xcodeproj -scheme UsageGrid -destination 'platform=macOS' -derivedDataPath DerivedData ARCHS=arm64 build`. `DerivedData` and Xcode user state are ignored by Git.
 
+## Release / Beta Build
+
+From the repository root, with Xcode 27 selected:
+
+```sh
+xcodebuild -project UsageGrid.xcodeproj -scheme UsageGrid -configuration Debug -destination 'platform=macOS' -derivedDataPath DerivedData ARCHS=arm64 build
+swift test
+xcodebuild -project UsageGrid.xcodeproj -scheme UsageGrid -configuration Release -destination 'platform=macOS' -derivedDataPath DerivedData ARCHS=arm64 build
+xcodebuild -project UsageGrid.xcodeproj -scheme UsageGrid -configuration Release -destination 'generic/platform=macOS' -archivePath DerivedData/T13-Universal/UsageGrid.xcarchive -derivedDataPath DerivedData archive
+```
+
+The Release app is `DerivedData/Build/Products/Release/UsageGrid.app`; the archive contains `Products/Applications/UsageGrid.app` with both arm64 and x86_64 slices. Both output locations are ignored by Git. The current app is ad hoc signed, with no Team, Developer ID identity, Hardened Runtime, or entitlements configured. It is suitable for local testing; it is not yet signed or notarised for normal external distribution. Live Codex usage requires the ChatGPT app's bundled Codex executable at `/Applications/ChatGPT.app/Contents/Resources/codex`. Claude live usage is not supported. Verify menu-bar behaviour and live Codex data from the packaged app before sharing a beta.
+
 ## T01 repository and Mac baseline
 
 - Starting directory on 22 September 2026: planning documents and reference PNGs only; no `.git`, app code, project, tests, or `AGENTS.md`. No unrelated source changes were present.
