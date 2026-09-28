@@ -10,6 +10,8 @@ The Swift package remains for command-line `swift build` and `swift test` with t
 
 ## Release / Beta Build
 
+See [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the latest verified Release artifacts, automated results, signing blockers, and remaining manual checks.
+
 From the repository root, with Xcode 27 selected:
 
 ```sh
