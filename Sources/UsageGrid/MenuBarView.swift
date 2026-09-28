@@ -7,9 +7,10 @@ struct MenuBarView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Bindable var codex: CodexRefreshCoordinator
     @Bindable var alerts: UsageAlertController
+    @Bindable var themePreferences: ThemePreferences
     @State private var selectedProvider: SelectedProvider = .codex
 
-    private var palette: ProgrammingPalette { ProgrammingPalette(colorScheme: colorScheme) }
+    private var palette: UsageThemePalette { UsageThemePalette(theme: themePreferences.activeTheme, colorScheme: colorScheme) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -18,13 +19,13 @@ struct MenuBarView: View {
                     .foregroundStyle(palette.accent)
                     .accessibilityHidden(true)
                 Text("UsageGrid")
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(palette.primaryText)
                 Spacer(minLength: 4)
                 if selectedProvider == .codex, let lastUpdated = codex.lastUpdated {
                     Text("Last updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
                         .font(.system(.caption, design: .monospaced))
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.secondaryText)
                         .accessibilityLabel("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
                 }
                 if selectedProvider == .codex {
@@ -62,7 +63,7 @@ struct MenuBarView: View {
                                 .foregroundStyle(palette.syntax)
                                 .accessibilityHidden(true)
                             Text("Stale · \(codex.errorMessage ?? "Refresh failed")")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(palette.secondaryText)
                         }
                         Button("Retry", action: refreshCodex)
                             .buttonStyle(.plain)
@@ -78,13 +79,14 @@ struct MenuBarView: View {
                     Text("Codex")
                 }
                 .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                .foregroundStyle(palette.primaryText)
 
                 VStack(alignment: .leading, spacing: 14) {
                     if let setupState = codex.setupState {
                         CodexSetupStatusView(state: setupState, retry: refreshCodex)
                     } else if let codexWindows = codex.windows {
                         ForEach(codexWindows, id: \.id) { window in
-                            CodexWindowRow(window: window, accent: palette.accent, remainingCell: palette.remainingCell, syntax: palette.syntax, resetTextColor: palette.resetText)
+                            CodexWindowRow(window: window, accent: palette.accent, remainingCell: palette.remainingCell, syntax: palette.syntax, primaryText: palette.primaryText, secondaryText: palette.secondaryText, resetTextColor: palette.resetText)
                         }
                     }
                 }
@@ -100,7 +102,7 @@ struct MenuBarView: View {
                     Text("Claude")
                 }
                 .font(.system(.subheadline, design: .monospaced).weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.secondaryText)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
@@ -109,10 +111,10 @@ struct MenuBarView: View {
                             .accessibilityHidden(true)
                         Text("Usage unavailable")
                     }
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.secondaryText)
                     Text("Claude integration is unavailable. Codex setup does not connect Claude.")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .font(.system(.callout, design: .monospaced))
@@ -133,7 +135,7 @@ struct MenuBarView: View {
                 Button("Quit UsageGrid") {
                     NSApplication.shared.terminate(nil)
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.secondaryText)
             }
             .buttonStyle(.plain)
             .font(.system(.callout, design: .monospaced))
@@ -165,7 +167,7 @@ struct MenuBarView: View {
         } label: {
             Text(title)
                 .font(.system(.callout, design: .monospaced).weight(isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? palette.accent : Color.secondary)
+                .foregroundStyle(isSelected ? palette.accent : palette.secondaryText)
                 .frame(maxWidth: .infinity, minHeight: 30)
                 .background(isSelected ? palette.selectedTab : Color.clear)
                 .overlay(alignment: .bottom) {
@@ -300,11 +302,13 @@ final class CodexRefreshCoordinator {
     }
 }
 
-private struct CodexWindowRow: View {
+struct CodexWindowRow: View {
     let window: CodexUsageWindow
     let accent: Color
     let remainingCell: Color
     let syntax: Color
+    let primaryText: Color
+    let secondaryText: Color
     let resetTextColor: Color
 
     private var usedCells: Int {
@@ -320,7 +324,7 @@ private struct CodexWindowRow: View {
                 Text(window.label)
             }
             .font(.system(.caption, design: .monospaced))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(secondaryText)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 3), count: 20), spacing: 3) {
                 ForEach(0..<100, id: \.self) { index in
@@ -337,10 +341,10 @@ private struct CodexWindowRow: View {
                 Text("const")
                     .foregroundStyle(syntax)
                 Text("used")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(secondaryText)
                 (Text(window.usedPercentage, format: .number.precision(.fractionLength(0))) + Text("%"))
                     .fontWeight(.semibold)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(primaryText)
                 Spacer(minLength: 4)
                 Text(window.resetText)
                     .foregroundStyle(resetTextColor)
@@ -349,39 +353,6 @@ private struct CodexWindowRow: View {
             }
             .font(.system(.caption, design: .monospaced))
             .monospacedDigit()
-        }
-    }
-}
-
-private struct ProgrammingPalette {
-    let canvas: Color
-    let surface: Color
-    let border: Color
-    let accent: Color
-    let remainingCell: Color
-    let syntax: Color
-    let resetText: Color
-    let selectedTab: Color
-
-    init(colorScheme: ColorScheme) {
-        if colorScheme == .dark {
-            canvas = Color(red: 30 / 255, green: 30 / 255, blue: 30 / 255)
-            surface = Color(red: 37 / 255, green: 37 / 255, blue: 38 / 255)
-            border = Color(red: 65 / 255, green: 65 / 255, blue: 67 / 255)
-            accent = Color(red: 78 / 255, green: 201 / 255, blue: 176 / 255)
-            remainingCell = Color(red: 62 / 255, green: 62 / 255, blue: 63 / 255)
-            syntax = Color(red: 133 / 255, green: 183 / 255, blue: 111 / 255)
-            resetText = Color(red: 194 / 255, green: 199 / 255, blue: 201 / 255)
-            selectedTab = Color(red: 45 / 255, green: 62 / 255, blue: 60 / 255)
-        } else {
-            canvas = Color(red: 243 / 255, green: 244 / 255, blue: 246 / 255)
-            surface = .white
-            border = Color(red: 211 / 255, green: 216 / 255, blue: 220 / 255)
-            accent = Color(red: 11 / 255, green: 112 / 255, blue: 99 / 255)
-            remainingCell = Color(red: 222 / 255, green: 227 / 255, blue: 230 / 255)
-            syntax = Color(red: 55 / 255, green: 115 / 255, blue: 69 / 255)
-            resetText = Color(red: 75 / 255, green: 84 / 255, blue: 88 / 255)
-            selectedTab = Color(red: 223 / 255, green: 239 / 255, blue: 235 / 255)
         }
     }
 }

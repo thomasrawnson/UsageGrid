@@ -57,6 +57,12 @@ Settings → Menu Bar controls whether the status item shows only its icon, the 
 
 The menu-bar value comes from the same authoritative reading as the panel. A missing selected window displays `—` and never silently switches to another window. Retained data displays a compact `⚠︎` stale marker until a successful refresh replaces it. The accessible status-item label identifies Codex, the selected window, used or remaining value, and freshness. Preferences update the status item immediately and survive app restarts.
 
+### Themes and UsageGrid Pro preview
+
+The existing Programming theme and all current UsageGrid functionality remain Free. Settings includes a compact theme gallery and isolated previews for three planned Pro themes: Midnight, Paper, and Aurora. Each preview is explicitly labelled as sample data and shows normal, stale, unavailable, and error states without changing the saved theme, fetching usage, or evaluating alerts.
+
+UsageGrid Pro is planned as a one-off purchase, but purchasing is not available yet. Production builds remain Free: a saved premium theme identifier is not treated as proof of purchase, and premium themes cannot become the active theme without a future verified entitlement. There are no Buy, Restore Purchases, licence, subscription, or payment controls in this slice. Codex remains the only live usage integration; theme previews do not imply Claude support.
+
 ### Usage alerts
 
 Settings → Usage Alerts can optionally notify when the Codex primary window reaches 80%, 90%, or 95% used; alerts are off by default and 90% is the default threshold. The threshold always means percentage **used**, regardless of whether the menu bar displays used or remaining quota. Notification permission is requested only when alerts are enabled. If permission is denied, UsageGrid leaves alerts off and links to Notification Settings rather than repeatedly prompting.

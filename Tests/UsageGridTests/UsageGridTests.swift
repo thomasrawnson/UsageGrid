@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Darwin
+import SwiftUI
 @testable import UsageGrid
 
 actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
@@ -54,6 +55,63 @@ actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
 
 @Test func appTargetLinks() {
     #expect(String(describing: UsageGridApp.self) == "UsageGridApp")
+}
+
+@Test func themeCatalogueLookupAndFallback() {
+    #expect(UsageTheme.lookup("programming").id == .programming)
+    #expect(UsageTheme.lookup("midnight").id == .midnight)
+    #expect(UsageTheme.lookup("paper").id == .paper)
+    #expect(UsageTheme.lookup("aurora").id == .aurora)
+    #expect(UsageTheme.lookup("future-theme").id == .programming)
+    #expect(UsageTheme.lookup(nil).id == .programming)
+    #expect(UsageTheme.all.filter(\.isPremium).count == 3)
+}
+
+@Test func productionThemeAccessRejectsPremiumSavedValuesAndSelection() throws {
+    let suiteName = "UsageGridTests.Themes.Free.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set(UsageThemeID.midnight.rawValue, forKey: ThemePreferences.activeThemeKey)
+
+    let preferences = ThemePreferences(defaults: defaults, access: .production)
+
+    #expect(!ThemeAccess.production.hasProEntitlement)
+    #expect(preferences.activeTheme.id == .programming)
+    #expect(!preferences.select(UsageTheme.lookup(UsageThemeID.aurora.rawValue)))
+    #expect(preferences.activeTheme.id == .programming)
+    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.midnight.rawValue)
+}
+
+@Test func entitledThemeSelectionPersistsWhilePreviewRemainsIsolated() throws {
+    let suiteName = "UsageGridTests.Themes.ProBoundary.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let access = ThemeAccess(hasProEntitlement: true)
+    let preferences = ThemePreferences(defaults: defaults, access: access)
+    let paper = UsageTheme.lookup(UsageThemeID.paper.rawValue)
+
+    #expect(access.canSelect(paper))
+    #expect(preferences.select(paper))
+    #expect(preferences.activeTheme.id == .paper)
+    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.paper.rawValue)
+
+    let previewedTheme = UsageTheme.lookup(UsageThemeID.aurora.rawValue)
+    let previewStates = ThemePreviewState.allCases
+    #expect(previewedTheme.id == .aurora)
+    #expect(previewStates == [.normal, .stale, .unavailable, .error])
+    #expect(preferences.activeTheme.id == .paper)
+    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.paper.rawValue)
+}
+
+@Test @MainActor func premiumThemeSampleStatesRender() {
+    for theme in UsageTheme.all.filter(\.isPremium) {
+        let palette = UsageThemePalette(theme: theme, colorScheme: .dark)
+        for state in ThemePreviewState.allCases {
+            let renderer = ImageRenderer(content: ThemeSampleCard(state: state, palette: palette).frame(width: 460))
+            renderer.proposedSize = ProposedViewSize(width: 460, height: state == .normal || state == .stale ? 190 : 90)
+            #expect(renderer.cgImage != nil, "Expected \(theme.name) \(state.title) preview to render")
+        }
+    }
 }
 
 @Test func codexRefreshStatePreservesSuccessfulData() {

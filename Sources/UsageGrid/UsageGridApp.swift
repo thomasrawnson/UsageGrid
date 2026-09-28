@@ -5,6 +5,7 @@ struct UsageGridApp: App {
     @State private var codex = CodexRefreshCoordinator()
     @State private var menuBarPreferences = MenuBarPreferences()
     @State private var usageAlerts = UsageAlertController()
+    @State private var themePreferences = ThemePreferences()
 
     init() {
         #if DEBUG && !SWIFT_PACKAGE
@@ -14,7 +15,7 @@ struct UsageGridApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(codex: codex, alerts: usageAlerts)
+            MenuBarView(codex: codex, alerts: usageAlerts, themePreferences: themePreferences)
         } label: {
             let presentation = MenuBarUsagePresentation.make(
                 mode: menuBarPreferences.displayMode,
@@ -36,7 +37,7 @@ struct UsageGridApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(preferences: menuBarPreferences, codex: codex, alerts: usageAlerts)
+            SettingsView(preferences: menuBarPreferences, codex: codex, alerts: usageAlerts, themePreferences: themePreferences)
         }
     }
 }

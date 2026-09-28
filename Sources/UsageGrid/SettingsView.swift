@@ -6,8 +6,10 @@ struct SettingsView: View {
     @Bindable var preferences: MenuBarPreferences
     @Bindable var codex: CodexRefreshCoordinator
     @Bindable var alerts: UsageAlertController
+    @Bindable var themePreferences: ThemePreferences
     @State private var status = SMAppService.mainApp.status
     @State private var errorMessage: String?
+    @State private var previewTheme: UsageTheme?
 
     private var versionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -56,6 +58,26 @@ struct SettingsView: View {
                             Text(MenuBarUsagePresentation.windowTitle(for: selection, windows: codex.windows)).tag(selection)
                         }
                     }
+                }
+            }
+
+            Section("Appearance") {
+                ThemeGalleryView(preferences: themePreferences, previewTheme: $previewTheme)
+                Text("Free themes can be selected immediately. Pro themes are available as isolated sample previews and do not change live usage or your saved theme.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("UsageGrid Pro") {
+                Text("Everything currently available in UsageGrid remains Free, including live Codex usage, refresh recovery, menu-bar display, alerts, and the Programming theme.")
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("The planned Pro offering adds the Midnight, Paper, and Aurora premium themes.")
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("One-off purchase planned. Purchasing is not available yet.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Preview themes") {
+                    previewTheme = UsageTheme.lookup(UsageThemeID.midnight.rawValue)
                 }
             }
 
@@ -144,6 +166,9 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshStatus()
             Task { await alerts.refreshPermissionStatus() }
+        }
+        .sheet(item: $previewTheme) { theme in
+            ProThemePreviewSheet(theme: theme)
         }
     }
 
