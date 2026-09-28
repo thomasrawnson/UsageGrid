@@ -19,7 +19,17 @@ xcodebuild -project UsageGrid.xcodeproj -scheme UsageGrid -configuration Release
 xcodebuild -project UsageGrid.xcodeproj -scheme UsageGrid -configuration Release -destination 'generic/platform=macOS' -archivePath DerivedData/T13-Universal/UsageGrid.xcarchive -derivedDataPath DerivedData archive
 ```
 
-The Release app is `DerivedData/Build/Products/Release/UsageGrid.app`; the archive contains `Products/Applications/UsageGrid.app` with both arm64 and x86_64 slices. Both output locations are ignored by Git. Release has Hardened Runtime enabled, but this Mac currently has no valid Developer ID Application identity or configured Development Team, so builds remain ad hoc signed. No entitlements or App Sandbox are configured. It is suitable for local testing; it is not yet signed or notarised for external distribution. Once a valid Developer ID Application identity and Team are available, configure Release signing in Xcode, then repeat the Release build, archive, signature checks, and packaged-app runtime checks before notarisation. Store future notarisation credentials in the macOS Keychain or an external secure system, never in this repository. Live Codex usage requires the ChatGPT app's bundled Codex executable at `/Applications/ChatGPT.app/Contents/Resources/codex`. Claude live usage is not supported.
+The Release app is `DerivedData/Build/Products/Release/UsageGrid.app`; the archive contains `Products/Applications/UsageGrid.app` with both arm64 and x86_64 slices. Both output locations are ignored by Git. Release has Hardened Runtime enabled, but this Mac currently has no valid Developer ID Application identity or configured Development Team, so builds remain ad hoc signed. No entitlements or App Sandbox are configured. It is suitable for local testing; it is not yet signed or notarised for external distribution. Once a valid Developer ID Application identity and Team are available, configure Release signing in Xcode, then repeat the Release build, archive, signature checks, and packaged-app runtime checks before notarisation. Store future notarisation credentials in the macOS Keychain or an external secure system, never in this repository. Live Codex usage uses the ChatGPT app's bundled Codex executable. Current releases place its launcher at `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`; UsageGrid also recognizes the native executable inside that bundle and the legacy `Resources/codex` location. Claude live usage is not supported.
+
+### Troubleshooting Codex usage
+
+- **Executable not found:** update or reinstall ChatGPT in `/Applications`. UsageGrid does not silently switch to an unrelated shell `PATH` executable.
+- **Signed out:** run `codex /status` in Terminal and sign in there if requested. UsageGrid inherits the normal user environment and Codex configuration location; it does not copy or log credentials.
+- **Initialization failed/timed out:** quit and reopen ChatGPT and UsageGrid, then retry. Check Console.app for the `com.plutonightlabs.UsageGrid` / `CodexUsage` category.
+- **Request rejected/timed out:** confirm `codex /status` works for the same macOS user, then retry.
+- **No supported usage windows:** update UsageGrid if `/status` still displays usage. Unknown plan metadata and absent optional windows are ignored, but at least one valid usage window must be present; missing usage is never shown as zero.
+
+Diagnostic logging records only failure categories and window counts. It does not record tokens, credentials, account identifiers, or complete provider payloads.
 
 ## T01 repository and Mac baseline
 

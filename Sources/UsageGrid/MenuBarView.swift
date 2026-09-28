@@ -58,7 +58,7 @@ struct MenuBarView: View {
                         Text(">")
                             .foregroundStyle(palette.syntax)
                             .accessibilityHidden(true)
-                        Text("Refresh failed · showing last update")
+                        Text(codex.errorMessage.map { "Refresh failed · \($0) · showing last update" } ?? "Refresh failed · showing last update")
                             .foregroundStyle(.secondary)
                     }
                     .font(.system(.caption, design: .monospaced))
@@ -85,7 +85,7 @@ struct MenuBarView: View {
                             Text(codex.refreshFailed ? "Usage unavailable" : "Loading usage…")
                         }
                         if codex.refreshFailed {
-                            Text("Could not read Codex usage")
+                            Text(codex.errorMessage ?? "Could not read Codex usage")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -150,8 +150,8 @@ struct MenuBarView: View {
     private func refreshCodex() {
         guard codex.start() else { return }
         Task {
-            let windows = await CodexUsageReader.read()
-            codex.finish(with: windows, at: Date())
+            let result = await CodexUsageReader.read()
+            codex.finish(with: result, at: Date())
         }
     }
 
@@ -192,23 +192,31 @@ struct CodexRefreshState {
     private(set) var isRefreshing = false
     private(set) var refreshFailed = false
     private(set) var lastUpdated: Date?
+    private(set) var errorMessage: String?
 
     mutating func start() -> Bool {
         guard !isRefreshing else { return false }
         isRefreshing = true
         refreshFailed = false
+        errorMessage = nil
         return true
     }
 
     mutating func finish(with newWindows: [CodexUsageWindow]?, at date: Date) {
+        finish(with: CodexUsageReadResult(windows: newWindows, error: newWindows == nil ? .decodingFailed : nil), at: date)
+    }
+
+    mutating func finish(with result: CodexUsageReadResult, at date: Date) {
         guard isRefreshing else { return }
         isRefreshing = false
-        if let newWindows {
+        if let newWindows = result.windows {
             windows = newWindows
             lastUpdated = date
             refreshFailed = false
+            errorMessage = nil
         } else {
             refreshFailed = true
+            errorMessage = result.error?.userMessage
         }
     }
 }

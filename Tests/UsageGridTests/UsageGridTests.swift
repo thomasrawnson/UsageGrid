@@ -93,3 +93,28 @@ import Foundation
     #expect(CodexUsageReader.parse(Data(#"{"result":{"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":"bad"}}}}}"#.utf8), now: now) == nil)
     #expect(CodexUsageReader.parse(Data("not json".utf8), now: now) == nil)
 }
+
+@Test func codexExecutableResolutionSupportsCurrentChatGPTBundle() {
+    let current = CodexUsageReader.executableCandidates[0]
+    let legacy = CodexUsageReader.executableCandidates[2]
+    #expect(current == "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex")
+    #expect(CodexUsageReader.resolveExecutable { $0 == current || $0 == legacy } == current)
+    #expect(CodexUsageReader.resolveExecutable { $0 == legacy } == legacy)
+    #expect(CodexUsageReader.resolveExecutable { _ in false } == nil)
+}
+
+@Test func codexRateLimitParsingIgnoresUnknownPlanMetadataAndNullWindow() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let changed = Data(#"{"result":{"rateLimitsByLimitId":{"codex":{"limitId":"codex","planType":"future-plan-value","primary":{"usedPercent":42,"windowDurationMins":300,"resetsAt":5920},"secondary":null,"rateLimitReachedType":null}},"rateLimitUpsell":{"unknown":true}}}"#.utf8)
+    let windows = CodexUsageReader.parse(changed, now: now)
+    #expect(windows?.count == 1)
+    #expect(windows?.first?.usedPercentage == 42)
+    #expect(windows?.first?.label == "5-hour limit")
+}
+
+@Test func codexFailureMessagesRemainActionable() {
+    #expect(CodexUsageReadError.executableNotFound.userMessage.contains("executable"))
+    #expect(CodexUsageReadError.authenticationRequired.userMessage.contains("Sign in"))
+    #expect(CodexUsageReadError.requestTimedOut.userMessage.contains("timed out"))
+    #expect(CodexUsageReadError.decodingFailed.userMessage.contains("supported usage windows"))
+}
