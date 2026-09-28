@@ -25,8 +25,45 @@ struct SettingsView: View {
     }
 
     var body: some View {
+        TabView {
+            generalSettings
+                .tabItem { Label("General", systemImage: "gearshape") }
+            appearanceSettings
+                .tabItem { Label("Appearance", systemImage: "paintpalette") }
+            usageSettings
+                .tabItem { Label("Usage & History", systemImage: "chart.xyaxis.line") }
+            alertSettings
+                .tabItem { Label("Alerts", systemImage: "bell") }
+            helpSettings
+                .tabItem { Label("Help", systemImage: "questionmark.circle") }
+        }
+        .frame(minWidth: 420, idealWidth: 520, maxWidth: 640,
+               minHeight: 480, idealHeight: 620, maxHeight: 760)
+        .onAppear {
+            refreshStatus()
+            Task { await alerts.refreshPermissionStatus() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshStatus()
+            Task { await alerts.refreshPermissionStatus() }
+        }
+        .sheet(item: $previewTheme) { theme in
+            ProThemePreviewSheet(theme: theme)
+        }
+        .sheet(isPresented: $showingHistoryPreview) {
+            UsageHistoryPreviewSheet(theme: themePreferences.activeTheme)
+        }
+        .confirmationDialog("Clear all recorded usage history?", isPresented: $confirmingHistoryClear) {
+            Button("Clear History", role: .destructive) { Task { await history.clear() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the local history file and cannot be undone.")
+        }
+    }
+
+    private var generalSettings: some View {
         Form {
-            Section("General") {
+            Section("Launch") {
                 Toggle("Launch UsageGrid at Login", isOn: Binding(
                     get: { status == .enabled },
                     set: { updateLaunchAtLogin($0) }
@@ -49,7 +86,7 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Menu Bar") {
+            Section("Menu bar display") {
                 Picker("Menu bar display", selection: $preferences.displayMode) {
                     ForEach(MenuBarDisplayMode.allCases) { mode in
                         Text(mode.title).tag(mode)
@@ -62,28 +99,6 @@ struct SettingsView: View {
                             Text(MenuBarUsagePresentation.windowTitle(for: selection, windows: codex.windows)).tag(selection)
                         }
                     }
-                }
-            }
-
-            Section("Appearance") {
-                ThemeGalleryView(preferences: themePreferences, proAccess: proAccess, previewTheme: $previewTheme)
-                Text(proAccess.effectiveAccess.hasProEntitlement
-                     ? "Pro themes can be applied to live usage and recorded history. Sample previews remain isolated from real data."
-                     : "Free themes can be selected immediately. Pro themes are available as isolated sample previews and do not change live usage or your saved theme.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("UsageGrid Pro") {
-                Text("Everything currently available in UsageGrid remains Free, including live Codex usage, refresh recovery, menu-bar display, alerts, and the Programming theme.")
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("The planned Pro offering adds 90s Retro, Anime, Zen Forest, Space, real usage-history viewing, independent secondary-window usage alerts, and confirmed reset notifications.")
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("One-off purchase planned. Purchasing is not available yet.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("Preview themes") {
-                    previewTheme = UsageTheme.lookup(UsageThemeID.retro.rawValue)
                 }
             }
 
@@ -100,12 +115,48 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             #endif
+        }
+        .formStyle(.grouped)
+    }
 
+    private var appearanceSettings: some View {
+        Form {
+            Section("Appearance") {
+                ThemeGalleryView(preferences: themePreferences, proAccess: proAccess, previewTheme: $previewTheme)
+                Text(proAccess.effectiveAccess.hasProEntitlement
+                     ? "Pro themes can be applied to live usage and recorded history. Sample previews remain isolated from real data."
+                     : "Free themes can be selected immediately. Pro themes are available as isolated sample previews and do not change live usage or your saved theme.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Free and Pro") {
+                VStack(alignment: .leading, spacing: 10) {
+                    featureSummary(title: "Free", systemImage: "checkmark.circle", features: "Live Codex usage, menu-bar display, Programming and Professional themes, and primary threshold alerts.")
+                    Divider()
+                    featureSummary(title: "UsageGrid Pro", systemImage: "sparkles", features: "Premium themes, real history and session views, secondary threshold alerts, and confirmed reset notifications.")
+                }
+                Text("History recording is optional, local to this Mac, and off by default.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("One-off purchase planned. Purchasing is not available yet.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Preview themes") {
+                    previewTheme = UsageTheme.lookup(UsageThemeID.retro.rawValue)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var usageSettings: some View {
+        Form {
             Section("Usage History") {
                 Toggle("Record usage history on this Mac", isOn: $history.isRecording)
                 Text(proAccess.effectiveAccess.canViewUsageHistory
                      ? "Optional and off by default. Recording occurs only while UsageGrid is running. Real history is available in the menu-bar popup while effective Pro access is active."
-                     : "Optional and off by default. Recording occurs only while UsageGrid is running. History viewing is planned for Pro; purchasing is not available yet.")
+                     : "Optional and off by default. Recording is local and occurs only while UsageGrid is running. Real history and session views require Pro.")
                     .font(.caption).foregroundStyle(.secondary)
                 Text("Stores only observation time, window type and duration, reset time, and percentage used for up to seven days. It describes observed account usage, not activity attributable to this Mac, app, or task.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -118,22 +169,12 @@ struct SettingsView: View {
                         .disabled(history.samples.isEmpty && history.storageError == nil)
                 }
             }
+        }
+        .formStyle(.grouped)
+    }
 
-            Section("Codex Connection") {
-                if codex.setupState == nil {
-                    Text("Connected · usage available")
-                        .foregroundStyle(.secondary)
-                    DisclosureGroup("Codex setup guide") {
-                        CodexSetupGuideView()
-                            .padding(.top, 4)
-                    }
-                } else if let setupState = codex.setupState {
-                    CodexSetupStatusView(state: setupState) {
-                        codex.requestRefresh()
-                    }
-                }
-            }
-
+    private var alertSettings: some View {
+        Form {
             Section("Usage Alerts") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(alertWindowTitle("primary", fallback: "Primary window"))
@@ -186,7 +227,7 @@ struct SettingsView: View {
                         ))
                     }
                 } else {
-                    Text("Independent secondary-window alerts are planned for UsageGrid Pro. Purchasing is not available yet.")
+                    Text("Secondary-window threshold alerts require Pro.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -199,7 +240,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Confirmed primary and secondary reset notifications are planned for UsageGrid Pro.")
+                    Text("Confirmed primary and secondary reset notifications require Pro.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -238,35 +279,46 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 420, idealWidth: 440, maxWidth: 560,
-               minHeight: 480, idealHeight: 620, maxHeight: 720)
-        .safeAreaInset(edge: .bottom) {
-            Text(versionText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 12)
+    }
+
+    private var helpSettings: some View {
+        Form {
+            Section("Codex Connection") {
+                if codex.setupState == nil {
+                    Text("Connected · usage available")
+                        .foregroundStyle(.secondary)
+                    DisclosureGroup("Codex setup guide") {
+                        CodexSetupGuideView()
+                            .padding(.top, 4)
+                    }
+                } else if let setupState = codex.setupState {
+                    CodexSetupStatusView(state: setupState) {
+                        codex.requestRefresh()
+                    }
+                }
+            }
+
+            Section("About") {
+                Text(versionText)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .onAppear {
-            refreshStatus()
-            Task { await alerts.refreshPermissionStatus() }
+        .formStyle(.grouped)
+    }
+
+    private func featureSummary(title: String, systemImage: String, features: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: systemImage)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(features)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshStatus()
-            Task { await alerts.refreshPermissionStatus() }
-        }
-        .sheet(item: $previewTheme) { theme in
-            ProThemePreviewSheet(theme: theme)
-        }
-        .sheet(isPresented: $showingHistoryPreview) {
-            UsageHistoryPreviewSheet(theme: themePreferences.activeTheme)
-        }
-        .confirmationDialog("Clear all recorded usage history?", isPresented: $confirmingHistoryClear) {
-            Button("Clear History", role: .destructive) { Task { await history.clear() } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes the local history file and cannot be undone.")
-        }
+        .accessibilityElement(children: .combine)
     }
 
     private func refreshStatus() {

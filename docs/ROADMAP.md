@@ -119,6 +119,8 @@ Gate: useful Pro behavior without billing. Beta feedback must confirm prediction
 
 ## S5 — Monetization, not a second platform
 
+Current commercial-foundation UI: Settings is organised into native General, Appearance, Usage & History, Alerts, and Help tabs. A single compact comparison reflects the implemented boundary: live Codex usage, menu-bar display, Programming/Professional themes, and the primary threshold alert remain Free; premium themes, real history/session views, the secondary threshold alert, and confirmed reset notifications require effective Pro access. Local history recording remains explicit opt-in. Debug simulation is clearly separate from a future verified purchase, and production access remains unchanged. Purchasing is not yet available.
+
 Owner gate: approve seller identity, final price, payment/distribution service, license/offline policy and support terms. Do not proceed with live commercial setup without those choices.
 
 Tasks: one-time purchase adapter; centralized verified entitlement; purchase/recovery UI; offline verification policy; release/debug separation; clear privacy and upgrade copy. Use vendor-managed checkout/licensing where suitable rather than building a bespoke account server.

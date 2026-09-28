@@ -59,6 +59,8 @@ The menu-bar value comes from the same authoritative reading as the panel. A mis
 
 ### Themes and Debug Pro simulation
 
+Settings uses five native tabs so navigation stays visible while each tab’s form scrolls: **General** contains Launch at Login, menu-bar display, and Debug-only simulation; **Appearance** contains the theme gallery, isolated previews, and the concise Free/Pro comparison; **Usage & History** contains local recording, storage status, preview, and Clear History; **Alerts** contains permission status, threshold/reset controls, and the test notification; **Help** contains Codex connection guidance and the app version. Changing tabs is presentation-only and does not refresh usage, request notification permission, send notifications, clear history, or alter preferences.
+
 Programming and Professional are Free themes. Settings includes a compact six-theme gallery and isolated previews for four reference-led Pro themes: 90s Retro, Anime, Zen Forest, and Space. Each preview is explicitly labelled as sample data and shows normal, stale, unavailable, and error states without changing the saved theme, fetching usage, or evaluating alerts.
 
 The current visual mapping is: Programming → `IMG_7529.PNG`, Professional → `IMG_7530.PNG`, 90s Retro → `IMG_7525.PNG`, Anime → `IMG_7526.PNG`, Zen Forest → `IMG_7527.PNG`, and Space → `IMG_7528.PNG`. Christmas (`IMG_7531.PNG`) and Halloween (`IMG_7532.PNG`) remain as design references but are deferred from the current offering. Preview boards exported during visual verification are in [`docs/rendered-theme-previews`](docs/rendered-theme-previews).
