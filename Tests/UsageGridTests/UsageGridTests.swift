@@ -107,7 +107,8 @@ actor TestHistoryStore: UsageHistoryPersisting {
     defer { defaults.removePersistentDomain(forName: suiteName) }
     defaults.set(UsageThemeID.retro.rawValue, forKey: ThemePreferences.activeThemeKey)
 
-    let preferences = ThemePreferences(defaults: defaults, access: .production)
+    let access = ProAccessController()
+    let preferences = ThemePreferences(defaults: defaults, access: access)
 
     #expect(!ThemeAccess.production.hasProEntitlement)
     #expect(preferences.activeTheme.id == .programming)
@@ -123,11 +124,11 @@ actor TestHistoryStore: UsageHistoryPersisting {
     let suiteName = "UsageGridTests.Themes.ProBoundary.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
-    let access = ThemeAccess(hasProEntitlement: true)
+    let access = ProAccessController(hasVerifiedPurchaseEntitlement: true)
     let preferences = ThemePreferences(defaults: defaults, access: access)
     let space = UsageTheme.lookup(UsageThemeID.space.rawValue)
 
-    #expect(access.canSelect(space))
+    #expect(access.effectiveAccess.canSelect(space))
     #expect(preferences.select(space))
     #expect(preferences.activeTheme.id == .space)
     #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.space.rawValue)
@@ -139,6 +140,37 @@ actor TestHistoryStore: UsageHistoryPersisting {
     #expect(preferences.activeTheme.id == .space)
     #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.space.rawValue)
 }
+
+#if DEBUG
+@Test func debugSimulationControlsSharedThemeAndHistoryAccessWithoutPersisting() throws {
+    let suiteName = "UsageGridTests.Themes.DebugSimulation.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set(UsageThemeID.anime.rawValue, forKey: ThemePreferences.activeThemeKey)
+
+    let firstRunAccess = ProAccessController()
+    let preferences = ThemePreferences(defaults: defaults, access: firstRunAccess)
+    let anime = UsageTheme.lookup(UsageThemeID.anime.rawValue)
+
+    #expect(!firstRunAccess.effectiveAccess.canViewUsageHistory)
+    #expect(!firstRunAccess.effectiveAccess.canSelect(anime))
+    #expect(preferences.activeTheme.id == .programming)
+
+    firstRunAccess.isDeveloperProSimulationEnabled = true
+    #expect(firstRunAccess.effectiveAccess.canViewUsageHistory)
+    #expect(firstRunAccess.effectiveAccess.canSelect(anime))
+    #expect(preferences.activeTheme.id == .anime)
+
+    firstRunAccess.isDeveloperProSimulationEnabled = false
+    #expect(!firstRunAccess.effectiveAccess.canViewUsageHistory)
+    #expect(preferences.activeTheme.id == .programming)
+    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.anime.rawValue)
+
+    let nextRunAccess = ProAccessController()
+    #expect(!nextRunAccess.isDeveloperProSimulationEnabled)
+    #expect(!nextRunAccess.effectiveAccess.hasProEntitlement)
+}
+#endif
 
 @Test @MainActor func premiumThemeSampleStatesRender() {
     for theme in UsageTheme.all.filter(\.isPremium) {
@@ -812,6 +844,29 @@ private func historySample(_ minute: Int, used: Double, window: UsageHistoryWind
     #expect(state.page == .usage)
 }
 
+@Test func popupRootHeightIsStableAndScreenBounded() {
+    #expect(PopupSizing.height(availableScreenHeight: 900) == 640)
+    #expect(PopupSizing.height(availableScreenHeight: 500) == 468)
+    #expect(PopupSizing.height(availableScreenHeight: 360) == 328)
+    #expect(PopupSizing.height(availableScreenHeight: 192) == 160)
+
+    let loadingHeight = PopupSizing.height(availableScreenHeight: 500)
+    let successfulUsageHeight = PopupSizing.height(availableScreenHeight: 500)
+    #expect(loadingHeight == successfulUsageHeight)
+}
+
+@Test func popupReturnsToUsageWhenHistoryAccessIsRemoved() {
+    var state = PopupPresentationState()
+    state.showHistory()
+    #expect(state.page == .history)
+    state.accessChanged(canViewHistory: false)
+    #expect(state.page == .usage)
+
+    state.showHistoryPreview()
+    state.accessChanged(canViewHistory: false)
+    #expect(state.page == .historyPreview)
+}
+
 @Test @MainActor func missingWindowObservationBreaksSessionComparison() async throws {
     let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.History.Missing.\(UUID())"))
     let controller = UsageHistoryController(defaults: defaults, store: TestHistoryStore())
@@ -942,3 +997,51 @@ private func historySample(_ minute: Int, used: Double, window: UsageHistoryWind
         ProThemePreviewSheet(theme: theme).environment(\.dynamicTypeSize, .accessibility2)
     }
 }
+
+#if DEBUG
+@Test @MainActor func combinedLiveAndHistoryPanelRendersAcrossAllThemesAndHeights() throws {
+    let outputDirectory = ProcessInfo.processInfo.environment["USAGEGRID_COMBINED_PANEL_DIR"].map {
+        URL(fileURLWithPath: $0, isDirectory: true)
+    }
+    if let outputDirectory {
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+    }
+
+    for theme in UsageTheme.all {
+        let palette = UsageThemePalette(theme: theme, colorScheme: .dark)
+        for constrained in [false, true] {
+            let size = CGSize(width: 350, height: constrained ? 400 : 620)
+            let renderer = ImageRenderer(content: CombinedPanelFixtureView(theme: theme, constrained: constrained, palette: palette))
+            renderer.scale = 2
+            renderer.proposedSize = ProposedViewSize(size)
+            let image = try #require(renderer.cgImage)
+            guard let outputDirectory else { continue }
+            let data = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+            let suffix = constrained ? "constrained" : "default"
+            try data.write(to: outputDirectory.appendingPathComponent("\(theme.id.rawValue)-combined-\(suffix).png"))
+        }
+    }
+
+    let defaultsName = "UsageGridTests.History.Enlarged.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let history = UsageHistoryController(defaults: defaults, store: TestHistoryStore())
+    let enlarged = RealUsageHistoryContent(
+        theme: UsageTheme.lookup(UsageThemeID.retro.rawValue),
+        history: history,
+        isFresh: true,
+        close: {},
+        openRecordingSettings: {}
+    )
+    .environment(\.dynamicTypeSize, .accessibility2)
+    .frame(width: 350, height: 400, alignment: .top)
+    let enlargedRenderer = ImageRenderer(content: enlarged)
+    enlargedRenderer.scale = 2
+    enlargedRenderer.proposedSize = ProposedViewSize(width: 350, height: 400)
+    let enlargedImage = try #require(enlargedRenderer.cgImage)
+    if let outputDirectory {
+        let data = try #require(NSBitmapImageRep(cgImage: enlargedImage).representation(using: .png, properties: [:]))
+        try data.write(to: outputDirectory.appendingPathComponent("retro-history-enlarged.png"))
+    }
+}
+#endif

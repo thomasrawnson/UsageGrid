@@ -8,6 +8,7 @@ struct SettingsView: View {
     @Bindable var alerts: UsageAlertController
     @Bindable var themePreferences: ThemePreferences
     @Bindable var history: UsageHistoryController
+    @Bindable var proAccess: ProAccessController
     @State private var status = SMAppService.mainApp.status
     @State private var errorMessage: String?
     @State private var previewTheme: UsageTheme?
@@ -65,8 +66,10 @@ struct SettingsView: View {
             }
 
             Section("Appearance") {
-                ThemeGalleryView(preferences: themePreferences, previewTheme: $previewTheme)
-                Text("Free themes can be selected immediately. Pro themes are available as isolated sample previews and do not change live usage or your saved theme.")
+                ThemeGalleryView(preferences: themePreferences, proAccess: proAccess, previewTheme: $previewTheme)
+                Text(proAccess.effectiveAccess.hasProEntitlement
+                     ? "Pro themes can be applied to live usage and recorded history. Sample previews remain isolated from real data."
+                     : "Free themes can be selected immediately. Pro themes are available as isolated sample previews and do not change live usage or your saved theme.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -74,7 +77,7 @@ struct SettingsView: View {
             Section("UsageGrid Pro") {
                 Text("Everything currently available in UsageGrid remains Free, including live Codex usage, refresh recovery, menu-bar display, alerts, and the Programming theme.")
                     .fixedSize(horizontal: false, vertical: true)
-                Text("The planned Pro offering adds 90s Retro, Anime, Zen Forest, Space, and usage-history viewing.")
+                Text("The planned Pro offering adds 90s Retro, Anime, Zen Forest, Space, and real usage-history viewing.")
                     .fixedSize(horizontal: false, vertical: true)
                 Text("One-off purchase planned. Purchasing is not available yet.")
                     .font(.caption)
@@ -84,9 +87,25 @@ struct SettingsView: View {
                 }
             }
 
+            #if DEBUG
+            Section("Developer testing") {
+                Toggle("Simulate Pro access", isOn: $proAccess.isDeveloperProSimulationEnabled)
+                Text(proAccess.isDeveloperProSimulationEnabled
+                     ? "Developer Pro simulation"
+                     : "Simulation off · normal Free access")
+                    .font(.caption)
+                    .foregroundStyle(proAccess.isDeveloperProSimulationEnabled ? .orange : .secondary)
+                Text("Debug-only and held in memory. This is not a purchase or production entitlement and resets when UsageGrid quits.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            #endif
+
             Section("Usage History") {
                 Toggle("Record usage history on this Mac", isOn: $history.isRecording)
-                Text("Optional and off by default. Recording occurs only while UsageGrid is running. History viewing is planned for Pro; purchasing is not available yet.")
+                Text(proAccess.effectiveAccess.canViewUsageHistory
+                     ? "Optional and off by default. Recording occurs only while UsageGrid is running. Real history is available in the menu-bar popup while effective Pro access is active."
+                     : "Optional and off by default. Recording occurs only while UsageGrid is running. History viewing is planned for Pro; purchasing is not available yet.")
                     .font(.caption).foregroundStyle(.secondary)
                 Text("Stores only observation time, window type and duration, reset time, and percentage used for up to seven days. It describes observed account usage, not activity attributable to this Mac, app, or task.")
                     .font(.caption).foregroundStyle(.secondary)

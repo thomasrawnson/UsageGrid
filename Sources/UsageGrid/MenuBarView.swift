@@ -9,6 +9,7 @@ struct MenuBarView: View {
     @Bindable var alerts: UsageAlertController
     @Bindable var themePreferences: ThemePreferences
     @Bindable var history: UsageHistoryController
+    @Bindable var proAccess: ProAccessController
     @State private var selectedProvider: SelectedProvider = .codex
     @State private var presentation = PopupPresentationState()
 
@@ -18,13 +19,15 @@ struct MenuBarView: View {
         Group {
             switch presentation.page {
             case .usage:
-                ViewThatFits(in: .vertical) {
-                    usagePanel
-                    ScrollView {
-                        usagePanel
-                            .frame(maxWidth: .infinity, alignment: .topLeading)
-                    }
-                }
+                usagePage
+            case .history:
+                RealUsageHistoryContent(
+                    theme: themePreferences.activeTheme,
+                    history: history,
+                    isFresh: !codex.isStale && !codex.refreshFailed,
+                    close: { presentation.showUsage() },
+                    openRecordingSettings: { openSettings() }
+                )
             case .historyPreview:
                 UsageHistoryPreviewContent(theme: themePreferences.activeTheme, closeTitle: "Back to usage") {
                     presentation.showUsage()
@@ -32,7 +35,7 @@ struct MenuBarView: View {
             }
         }
         .frame(width: 350)
-        .frame(maxHeight: maximumPopupHeight, alignment: .top)
+        .frame(height: popupHeight, alignment: .top)
         .background {
             ZStack {
                 palette.canvas
@@ -50,47 +53,78 @@ struct MenuBarView: View {
             refreshCodex()
         }
         .onDisappear { presentation.popupDismissed() }
+        .onChange(of: proAccess.effectiveAccess.canViewUsageHistory) { _, canViewHistory in
+            presentation.accessChanged(canViewHistory: canViewHistory)
+        }
     }
 
-    private var maximumPopupHeight: CGFloat {
-        min(680, max(360, (NSScreen.main?.visibleFrame.height ?? 760) - 48))
+    private var popupHeight: CGFloat {
+        let pointer = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(pointer) }) ?? NSScreen.main
+        return PopupSizing.height(availableScreenHeight: screen?.visibleFrame.height ?? 680)
+    }
+
+    private var usagePage: some View {
+        VStack(spacing: 0) {
+            popupHeader
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 10)
+            Divider()
+            ScrollView {
+                usagePanel
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+
+    private var popupHeader: some View {
+        HStack(spacing: 8) {
+            Text("//")
+                .foregroundStyle(palette.accent)
+                .accessibilityHidden(true)
+            Text("UsageGrid")
+                .foregroundStyle(palette.primaryText)
+            Spacer(minLength: 4)
+            if selectedProvider == .codex, let lastUpdated = codex.lastUpdated {
+                Text("Last updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
+                    .font(.system(.caption, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(palette.secondaryText)
+                    .accessibilityLabel("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
+            }
+            if selectedProvider == .codex {
+                if codex.isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 24, height: 24)
+                        .accessibilityLabel("Refreshing Codex usage")
+                } else {
+                    Button(action: refreshCodex) {
+                        Image(systemName: "arrow.clockwise")
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(palette.accent)
+                    .accessibilityLabel("Refresh Codex usage")
+                    .help("Refresh Codex usage")
+                }
+            }
+        }
+        .font(.system(.headline, design: .monospaced))
+        .fontDesign(palette.fontDesign)
     }
 
     private var usagePanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Text("//")
-                    .foregroundStyle(palette.accent)
-                    .accessibilityHidden(true)
-                Text("UsageGrid")
-                    .foregroundStyle(palette.primaryText)
-                Spacer(minLength: 4)
-                if selectedProvider == .codex, let lastUpdated = codex.lastUpdated {
-                    Text("Last updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
-                        .font(.system(.caption, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundStyle(palette.secondaryText)
-                        .accessibilityLabel("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
-                }
-                if selectedProvider == .codex {
-                    if codex.isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 24, height: 24)
-                            .accessibilityLabel("Refreshing Codex usage")
-                    } else {
-                        Button(action: refreshCodex) {
-                            Image(systemName: "arrow.clockwise")
-                                .frame(width: 24, height: 24)
-                        }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(palette.accent)
-                        .accessibilityLabel("Refresh Codex usage")
-                        .help("Refresh Codex usage")
-                    }
-                }
+
+            #if DEBUG
+            if proAccess.isDeveloperSimulationActive {
+                Label("Developer Pro simulation", systemImage: "hammer.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.warning)
             }
-            .font(.system(.headline, design: .monospaced))
+            #endif
 
             HStack(spacing: 0) {
                 providerTab(.codex, title: "Codex")
@@ -173,14 +207,24 @@ struct MenuBarView: View {
 
             if selectedProvider == .codex {
                 VStack(alignment: .leading, spacing: 5) {
-                    if ThemeAccess.production.canViewUsageHistory {
-                        UsageSessionChangeView(change: history.session.change, isFresh: !codex.isStale && !codex.refreshFailed, isRecording: history.isRecording)
+                    if proAccess.effectiveAccess.canViewUsageHistory {
+                        RecordedHistorySection(
+                            history: history,
+                            palette: palette,
+                            isFresh: !codex.isStale && !codex.refreshFailed,
+                            compact: true,
+                            openRecordingSettings: { openSettings() }
+                        )
+                        HStack(spacing: 14) {
+                            Button("View history") { presentation.showHistory() }
+                            Button("Preview sample") { presentation.showHistoryPreview() }
+                        }
                     } else {
                         Text(history.isRecording ? "History recording on · viewing planned for Pro" : "History recording off")
                             .font(.caption)
+                        Button("Preview usage history") { presentation.showHistoryPreview() }
+                            .foregroundStyle(palette.accent)
                     }
-                    Button("Preview usage history") { presentation.showHistoryPreview() }
-                        .foregroundStyle(palette.accent)
                 }
                 .foregroundStyle(palette.secondaryText)
                 .buttonStyle(.plain)
@@ -236,6 +280,12 @@ struct MenuBarView: View {
     }
 }
 
+enum PopupSizing {
+    static func height(availableScreenHeight: CGFloat) -> CGFloat {
+        max(160, min(640, availableScreenHeight - 32))
+    }
+}
+
 private enum SelectedProvider {
     case codex
     case claude
@@ -243,14 +293,19 @@ private enum SelectedProvider {
 
 enum PopupPage {
     case usage
+    case history
     case historyPreview
 }
 
 struct PopupPresentationState {
     private(set) var page: PopupPage = .usage
+    mutating func showHistory() { page = .history }
     mutating func showHistoryPreview() { page = .historyPreview }
     mutating func showUsage() { page = .usage }
     mutating func popupDismissed() { page = .usage }
+    mutating func accessChanged(canViewHistory: Bool) {
+        if !canViewHistory && page == .history { page = .usage }
+    }
 }
 
 struct CodexRefreshState {

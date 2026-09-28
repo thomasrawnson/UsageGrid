@@ -50,24 +50,54 @@ struct ThemeAccess: Equatable {
 }
 
 @Observable
+final class ProAccessController {
+    /// Placeholder for the future verified purchase entitlement source.
+    /// It intentionally remains false until purchasing is implemented.
+    private let hasVerifiedPurchaseEntitlement: Bool
+
+    #if DEBUG
+    var isDeveloperProSimulationEnabled = false
+    #endif
+
+    init(hasVerifiedPurchaseEntitlement: Bool = false) {
+        self.hasVerifiedPurchaseEntitlement = hasVerifiedPurchaseEntitlement
+    }
+
+    var effectiveAccess: ThemeAccess {
+        #if DEBUG
+        ThemeAccess(hasProEntitlement: hasVerifiedPurchaseEntitlement || isDeveloperProSimulationEnabled)
+        #else
+        ThemeAccess(hasProEntitlement: hasVerifiedPurchaseEntitlement)
+        #endif
+    }
+
+    #if DEBUG
+    var isDeveloperSimulationActive: Bool { isDeveloperProSimulationEnabled }
+    #endif
+}
+
+@Observable
 final class ThemePreferences {
     static let activeThemeKey = "activeUsageTheme"
 
     private let defaults: UserDefaults
-    private let access: ThemeAccess
-    private(set) var activeTheme: UsageTheme
+    private let access: ProAccessController
+    private var savedTheme: UsageTheme
 
-    init(defaults: UserDefaults = .standard, access: ThemeAccess = .production) {
+    init(defaults: UserDefaults = .standard, access: ProAccessController = ProAccessController()) {
         self.defaults = defaults
         self.access = access
-        let saved = UsageTheme.lookup(defaults.string(forKey: Self.activeThemeKey))
-        activeTheme = access.canSelect(saved) ? saved : .defaultTheme
+        savedTheme = UsageTheme.lookup(defaults.string(forKey: Self.activeThemeKey))
+    }
+
+    var activeTheme: UsageTheme {
+        access.effectiveAccess.canSelect(savedTheme) ? savedTheme : .defaultTheme
     }
 
     @discardableResult
     func select(_ theme: UsageTheme) -> Bool {
-        guard access.canSelect(theme) else { return false }
-        activeTheme = theme
+        guard access.effectiveAccess.canSelect(theme) else { return false }
+        savedTheme = theme
         defaults.set(theme.id.rawValue, forKey: Self.activeThemeKey)
         return true
     }

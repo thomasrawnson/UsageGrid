@@ -12,6 +12,7 @@ struct UsageHistoryChartView: View {
     let isRecording: Bool
     let storageError: String?
     let isSample: Bool
+    var chartHeight: CGFloat = 145
 
     private var relevant: [UsageHistorySample] {
         let matching = samples.filter { $0.window == selection }
@@ -25,6 +26,7 @@ struct UsageHistoryChartView: View {
             if isSample { Text("Sample data").font(.caption.weight(.bold)).foregroundStyle(palette.warning) }
             if let storageError { Label(storageError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(palette.error) }
             if !isRecording && !isSample { Text("History recording is off.").foregroundStyle(palette.secondaryText) }
+            else if relevant.isEmpty && samples.isEmpty && !isSample { Text("Collecting readings…").foregroundStyle(palette.secondaryText) }
             else if relevant.isEmpty { Text("No recorded observations for this window.").foregroundStyle(palette.secondaryText) }
             else {
                 Text("0–100% used")
@@ -47,7 +49,7 @@ struct UsageHistoryChartView: View {
                 .chartYAxis {
                     AxisMarks { AxisGridLine().foregroundStyle(palette.border); AxisTick().foregroundStyle(palette.border); AxisValueLabel().foregroundStyle(palette.secondaryText) }
                 }
-                .frame(height: 145)
+                .frame(height: chartHeight)
                 .accessibilityLabel(accessibilitySummary)
             }
         }
@@ -57,6 +59,125 @@ struct UsageHistoryChartView: View {
     private var accessibilitySummary: String {
         guard let first = relevant.first, let last = relevant.last else { return "No usage history" }
         return "\(selection.rawValue.capitalized) usage history, \(relevant.count) observations, from \(Int(first.usedPercentage.rounded())) to \(Int(last.usedPercentage.rounded())) percent used, in \(segments.count) continuous segments."
+    }
+}
+
+struct RecordedHistorySection: View {
+    let history: UsageHistoryController
+    let palette: UsageThemePalette
+    let isFresh: Bool
+    let compact: Bool
+    let openRecordingSettings: () -> Void
+    @State private var selection: UsageHistoryWindow = .primary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Recorded history")
+                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(palette.primaryText)
+                Text("Historical observations · not the current live reading")
+                    .font(.caption)
+                    .foregroundStyle(palette.secondaryText)
+            }
+
+            Picker("Usage window", selection: $selection) {
+                Text(windowTitle(.primary)).tag(UsageHistoryWindow.primary)
+                Text(windowTitle(.secondary)).tag(UsageHistoryWindow.secondary)
+            }
+            .pickerStyle(.segmented)
+
+            UsageHistoryChartView(
+                samples: history.samples,
+                selection: selection,
+                palette: palette,
+                isRecording: history.isRecording,
+                storageError: history.storageError,
+                isSample: false,
+                chartHeight: compact ? 90 : 145
+            )
+
+            UsageSessionChangeView(
+                change: history.session.change,
+                isFresh: isFresh,
+                isRecording: history.isRecording
+            )
+            .foregroundStyle(palette.secondaryText)
+
+            if !history.isRecording {
+                Button("Open recording settings", action: openRecordingSettings)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(palette.accent)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(palette.surface, in: RoundedRectangle(cornerRadius: palette.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: palette.cardRadius).stroke(palette.border, lineWidth: 1))
+    }
+
+    private func windowTitle(_ window: UsageHistoryWindow) -> String {
+        guard let duration = history.samples.last(where: { $0.window == window })?.durationMinutes else {
+            return window == .primary ? "Primary" : "Secondary"
+        }
+        if duration % 1_440 == 0 { return "\(duration / 1_440)-day window" }
+        if duration % 60 == 0 { return "\(duration / 60)-hour window" }
+        return "\(duration)-minute window"
+    }
+}
+
+struct RealUsageHistoryContent: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let theme: UsageTheme
+    let history: UsageHistoryController
+    let isFresh: Bool
+    let close: () -> Void
+    let openRecordingSettings: () -> Void
+
+    private var palette: UsageThemePalette { UsageThemePalette(theme: theme, colorScheme: colorScheme) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    heading
+                    Spacer()
+                    backButton
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    heading
+                    backButton
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding([.horizontal, .top]).padding(.bottom, 10)
+
+            ScrollView {
+                RecordedHistorySection(
+                    history: history,
+                    palette: palette,
+                    isFresh: isFresh,
+                    compact: false,
+                    openRecordingSettings: openRecordingSettings
+                )
+                .padding([.horizontal, .bottom])
+            }
+        }
+        .fontDesign(palette.fontDesign)
+        .foregroundStyle(palette.primaryText)
+        .background(palette.canvas)
+    }
+
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Usage history").font(.headline)
+            Text("Recorded observations from successful refreshes")
+                .font(.caption).foregroundStyle(palette.secondaryText)
+        }
+    }
+
+    private var backButton: some View {
+        Button("Back to usage", action: close).keyboardShortcut(.cancelAction)
     }
 }
 
@@ -179,3 +300,88 @@ struct UsageHistoryExportPreview: View {
         }
     }
 }
+
+#if DEBUG
+struct CombinedPanelFixtureView: View {
+    let theme: UsageTheme
+    let constrained: Bool
+    let palette: UsageThemePalette
+
+    private let liveWindow = CodexUsageWindow(
+        id: "primary",
+        label: "3-hour limit",
+        usedPercentage: 42,
+        resetText: "Resets in 1h 24m",
+        durationMinutes: 180
+    )
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            palette.canvas
+            ThemeDecorationView(theme: theme, palette: palette)
+            panel
+        }
+        .frame(width: 350, height: constrained ? 400 : 620, alignment: .top)
+        .clipped()
+    }
+
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("// UsageGrid").font(.headline)
+                Spacer()
+                Text("Last updated 12:34").font(.caption)
+            }
+            Text("Live usage · current reading").font(.caption.weight(.semibold))
+            CodexWindowRow(window: liveWindow, palette: palette)
+                .padding(12)
+                .background(palette.surface, in: RoundedRectangle(cornerRadius: palette.cardRadius))
+                .overlay(RoundedRectangle(cornerRadius: palette.cardRadius).stroke(palette.border))
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Recorded history").font(.subheadline.weight(.semibold))
+                Text("Historical observations · not the current live reading").font(.caption)
+                HStack(spacing: 0) {
+                    Text("3-hour window")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                        .background(palette.selectedTab)
+                    Text("7-day window")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                }
+                .font(.caption)
+                .overlay(Rectangle().stroke(palette.border))
+                UsageHistoryChartView(
+                    samples: UsageHistoryPreviewSheet.sampleData,
+                    selection: .primary,
+                    palette: palette,
+                    isRecording: true,
+                    storageError: nil,
+                    isSample: false
+                )
+                .frame(height: 175)
+                UsageSessionChangeView(
+                    change: UsageSessionChange(
+                        percentagePoints: 12,
+                        since: UsageHistoryPreviewSheet.base,
+                        observedAt: UsageHistoryPreviewSheet.base.addingTimeInterval(120)
+                    ),
+                    isFresh: true,
+                    isRecording: true
+                )
+            }
+            .padding(12)
+            .background(palette.surface, in: RoundedRectangle(cornerRadius: palette.cardRadius))
+            .overlay(RoundedRectangle(cornerRadius: palette.cardRadius).stroke(palette.border))
+            HStack { Button("Settings") {}; Spacer(); Button("View history") {} }
+                .buttonStyle(.plain)
+        }
+        .padding(14)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 350, alignment: .top)
+        .fontDesign(palette.fontDesign)
+        .foregroundStyle(palette.primaryText)
+    }
+}
+#endif

@@ -5,10 +5,14 @@ struct UsageGridApp: App {
     @State private var codex = CodexRefreshCoordinator()
     @State private var menuBarPreferences = MenuBarPreferences()
     @State private var usageAlerts = UsageAlertController()
-    @State private var themePreferences = ThemePreferences()
+    @State private var proAccess: ProAccessController
+    @State private var themePreferences: ThemePreferences
     @State private var usageHistory = UsageHistoryController()
 
     init() {
+        let access = ProAccessController()
+        _proAccess = State(initialValue: access)
+        _themePreferences = State(initialValue: ThemePreferences(access: access))
         #if DEBUG && !SWIFT_PACKAGE
         assert(Bundle.main.bundleIdentifier == "com.plutonightlabs.UsageGrid")
         #endif
@@ -16,7 +20,7 @@ struct UsageGridApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(codex: codex, alerts: usageAlerts, themePreferences: themePreferences, history: usageHistory)
+            MenuBarView(codex: codex, alerts: usageAlerts, themePreferences: themePreferences, history: usageHistory, proAccess: proAccess)
         } label: {
             let presentation = MenuBarUsagePresentation.make(
                 mode: menuBarPreferences.displayMode,
@@ -38,7 +42,7 @@ struct UsageGridApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(preferences: menuBarPreferences, codex: codex, alerts: usageAlerts, themePreferences: themePreferences, history: usageHistory)
+            SettingsView(preferences: menuBarPreferences, codex: codex, alerts: usageAlerts, themePreferences: themePreferences, history: usageHistory, proAccess: proAccess)
         }
     }
 }

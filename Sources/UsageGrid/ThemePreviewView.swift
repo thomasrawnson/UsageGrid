@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ThemeGalleryView: View {
     @Bindable var preferences: ThemePreferences
+    @Bindable var proAccess: ProAccessController
     @Binding var previewTheme: UsageTheme?
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
@@ -12,6 +13,7 @@ struct ThemeGalleryView: View {
                 ThemeGalleryCard(
                     theme: theme,
                     isSelected: preferences.activeTheme.id == theme.id,
+                    canSelect: proAccess.effectiveAccess.canSelect(theme),
                     select: { preferences.select(theme) },
                     preview: { previewTheme = theme }
                 )
@@ -24,6 +26,7 @@ private struct ThemeGalleryCard: View {
     @Environment(\.colorScheme) private var colorScheme
     let theme: UsageTheme
     let isSelected: Bool
+    let canSelect: Bool
     let select: () -> Void
     let preview: () -> Void
 
@@ -56,7 +59,13 @@ private struct ThemeGalleryCard: View {
             .accessibilityHidden(true)
 
             if theme.isPremium {
-                Button("Preview", action: preview)
+                HStack {
+                    if canSelect {
+                        Button(isSelected ? "Selected" : "Use theme", action: select)
+                            .disabled(isSelected)
+                    }
+                    Button("Preview", action: preview)
+                }
             } else {
                 Button(isSelected ? "Selected" : "Use theme", action: select)
                     .disabled(isSelected)

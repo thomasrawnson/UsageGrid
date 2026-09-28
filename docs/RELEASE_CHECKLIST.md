@@ -10,6 +10,7 @@ Run from the repository root:
 
 ```sh
 swift test
+xcodebuild -project UsageGrid.xcodeproj -scheme UsageGrid -configuration Debug -destination 'platform=macOS' -derivedDataPath DerivedData ARCHS=arm64 build
 xcodebuild -project UsageGrid.xcodeproj -scheme UsageGrid -configuration Release -destination 'platform=macOS' -derivedDataPath DerivedData ARCHS=arm64 build
 xcodebuild -project UsageGrid.xcodeproj -scheme UsageGrid -configuration Release -destination 'generic/platform=macOS' -archivePath DerivedData/T13-Universal/UsageGrid.xcarchive -derivedDataPath DerivedData archive
 git diff --check
@@ -27,7 +28,8 @@ The Release app launched for UG-R07 was:
 
 ## PASS
 
-- `swift test`: 50 tests passed for UG-C02 and the popup-layout fix, including theme lookup/fallback, production access rejection, history opt-in, persisted-field restrictions and boundaries, retention, missing-window and other segmentation, session calculations, popup navigation reset, clear-generation safety, preview isolation, and rendering history states across all six current themes.
+- `swift test`: 54 tests passed. Focused coverage includes stable screen-bounded popup sizing across loading/success states, Debug simulation off/on, shared theme/history access, access removal during premium history, safe premium-theme fallback without deleting the saved choice, process-local simulation reset, history isolation, and rendering the combined live/history panel across all six themes at default and constrained heights.
+- Xcode arm64 Debug build completed successfully.
 - Xcode arm64 Release build completed successfully.
 - The configured generic macOS archive workflow completed successfully.
 - `git diff --check` passed after the checklist changes.
@@ -38,16 +40,18 @@ The Release app launched for UG-R07 was:
 - Both signatures have the Hardened Runtime flag. Both are ad hoc (`Signature=adhoc`, no Team identifier), so this is a local-runtime pass, not a distribution-signing pass.
 - The exact local Release app path above launched and remained running. No installed app was overwritten and Launch at Login registration was not changed.
 - The first configured bundled Codex path, `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`, initialized its app-server and returned supported primary usage-window field types through `account/rateLimits/read`. The redacted probe did not print usage values, account values, credentials, or raw payloads, and its launcher process exited afterward.
-- Source/build inspection found no Release mock or sample usage path. The only `DEBUG` block is a development bundle-ID assertion, and Release has no `DEBUG` compilation condition.
+- Release has no `DEBUG` compilation condition. The developer simulation toggle, its mutable enabling state, status banner, and fixture-only renderer are all guarded by `#if DEBUG`.
 - Release compiler inputs include Settings, usage alerts, menu-bar display, and first-run setup guidance.
 - Release compiler inputs include the six-theme Free/Pro catalogue and isolated premium preview UI. Programming and Professional are Free; 90s Retro, Anime, Zen Forest, and Space are preview-only without entitlement. Christmas and Halloween are deferred. Purchasing and payment verification are not implemented.
-- Release uses `ThemeAccess.production`, which always denies premium selection; there is no development override in app settings or Release configuration. An injected entitlement exists only as a testable access-policy input for future verified purchase work.
+- Release effective access uses the unchanged false verified-purchase placeholder. Source and built-product inspection found no developer-simulation control or enabling symbol in Release; there is no environment, argument, or UserDefaults bypass.
 - Computed premium-preview text contrast against each theme surface passes WCAG AA for normal text: primary 9.48–16.56:1, secondary 5.01–9.41:1, and labelled success/warning/error text 4.77–12.58:1.
 - Four current premium-theme boards were visually inspected against their source images. The boards contain normal, stale, unavailable, and error states with no observed clipping. See `docs/rendered-theme-previews/`.
 - Local history is opt-in and uses fresh coordinator results without additional polling. The persisted JSON schema contains only observation time, window type, duration, reset time, and percentage used; retention is seven days and 25,000 samples. Chart/session previews use isolated sample data and production remains unentitled.
 - Six history preview boards were rendered and visually inspected. An initial dark-theme axis contrast defect was fixed; the final chart, gap, single-observation, and empty states have readable 0–100% axes and no observed clipping. See `docs/rendered-history-previews/`.
 - Popup/history and theme-sheet containers were rendered at default, reduced-height, and enlarged-text configurations. Their fixed headers and Back/Close controls remained visible; `ImageRenderer` did not render the contents of native `ScrollView`, so actual scrolling and interaction remain a manual check. See `docs/rendered-ui-fix/`.
+- Combined live usage and recorded-history fixtures were rendered in all six themes at default and constrained heights and visually inspected. These renders do not prove mouse, keyboard, scrolling, Escape/Back, outside-dismissal, or reopening behavior. See `docs/rendered-pro-panel/`.
 - Popup history preview navigation is now in-place, resets to live usage on dismissal, and maps Escape to Back before popup dismissal. No parent tap gesture or custom outside-click monitor exists; the removed sheet presentation was the only separate lifecycle attached to the transient `MenuBarExtra` window.
+- The vertical `ViewThatFits` root was removed after it regressed native `MenuBarExtra` size negotiation. The root now has a deterministic 350-point width and screen-bounded 160–640-point height, with a fixed header and one scrolling body. Native-host interaction remains NOT TESTED because the automation service cannot attach to this menu-bar-only app.
 - Application logging is limited to refresh stages, failure categories, and window counts. Codex stderr is discarded; credentials, account identifiers, environment contents, and raw usage payloads are not logged.
 
 ## FAIL
@@ -95,3 +99,4 @@ Perform these against the exact Release path listed above and update each item t
 - **NOT TESTED — Theme previews in app:** inspect 90s Retro, Anime, Zen Forest, and Space in the actual Settings sheet; confirm sample labelling, Pro/selected labels, keyboard focus order, enlarged text, and Close behavior. Exported boards were inspected separately and passed for clipping/readability.
 - **NOT TESTED — History UI:** inspect recording opt-in copy, Clear History confirmation, all chart empty/single/gap states, primary/secondary labels, storage-error copy, and sample-preview isolation in the running app.
 - **NOT TESTED — Free/Pro boundary:** confirm Programming remains selectable and persistent, Preview never changes the active theme or live usage, and the Release app cannot permanently activate a premium theme without verified entitlement.
+- **NOT TESTED — Debug Pro simulation:** enable the Debug-only toggle, apply each premium theme, confirm live/history styling changes together, view real history after two successful refreshes, disable simulation while viewing history, and confirm the popup immediately returns to Free usage with Programming fallback. Quit/relaunch and confirm simulation is off.
