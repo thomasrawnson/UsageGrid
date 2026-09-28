@@ -9,11 +9,13 @@ actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
     var requestCount = 0
     var deliveries: [UsageAlertNotification] = []
     var failDelivery: Bool
+    var deliveryDelay: Duration?
 
-    init(status: UsageAlertPermissionStatus, requestResult: Bool = false, failDelivery: Bool = false) {
+    init(status: UsageAlertPermissionStatus, requestResult: Bool = false, failDelivery: Bool = false, deliveryDelay: Duration? = nil) {
         self.status = status
         self.requestResult = requestResult
         self.failDelivery = failDelivery
+        self.deliveryDelay = deliveryDelay
     }
 
     func permissionStatus() async -> UsageAlertPermissionStatus { status }
@@ -26,6 +28,7 @@ actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
 
     func deliver(_ notification: UsageAlertNotification) async throws {
         deliveries.append(notification)
+        if let deliveryDelay { try? await Task.sleep(for: deliveryDelay) }
         if failDelivery { throw TestDeliveryError.failed }
     }
 
@@ -336,7 +339,7 @@ actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
     #expect(await controller.evaluate(windows: [alertWindow(used: 96, reset: Date(timeIntervalSince1970: 30_000))], isFresh: true))
     let deliveries = await notifications.snapshot().deliveries
     #expect(deliveries.count == 2)
-    #expect(deliveries[0].title == "Codex usage getting low")
+    #expect(deliveries[0].title == "Codex usage limit approaching")
     #expect(deliveries[0].body.contains("90% used, 10% remaining"))
     #expect(deliveries[0].body.contains("3-hour limit"))
 }
@@ -444,4 +447,60 @@ private func alertWindow(used: Double, reset: Date?) -> CodexUsageWindow {
         durationMinutes: 180,
         resetsAt: reset
     )
+}
+
+@Test @MainActor func testNotificationDeliversWithPermissionWithoutChangingAlertState() async throws {
+    let suiteName = "UsageGridTests.TestNotification.Allowed.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let preferences = UsageAlertPreferences(defaults: defaults)
+    preferences.enabled = false
+    preferences.threshold = .ninetyFive
+    preferences.lastAlertedWindow = "existing-reset-window"
+    let notifications = TestUsageAlertNotifications(status: .authorized)
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
+    await controller.refreshPermissionStatus()
+
+    #expect(await controller.sendTestNotification(cooldown: .milliseconds(20)))
+    let snapshot = await notifications.snapshot()
+    #expect(snapshot.deliveries.count == 1)
+    #expect(snapshot.deliveries[0].title == "UsageGrid test notification")
+    #expect(snapshot.deliveries[0].body == "Notifications are working. Usage alerts will warn you when your selected threshold is reached.")
+    #expect(controller.testNotificationMessage == "Test notification requested")
+    #expect(!preferences.enabled)
+    #expect(preferences.threshold == .ninetyFive)
+    #expect(preferences.lastAlertedWindow == "existing-reset-window")
+}
+
+@Test @MainActor func testNotificationDoesNotRequestOrDeliverWithoutPermission() async throws {
+    let suiteName = "UsageGridTests.TestNotification.Denied.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let notifications = TestUsageAlertNotifications(status: .denied)
+    let controller = UsageAlertController(preferences: UsageAlertPreferences(defaults: defaults), notifications: notifications)
+    await controller.refreshPermissionStatus()
+
+    #expect(!controller.canSendTestNotification)
+    #expect(!(await controller.sendTestNotification()))
+    let snapshot = await notifications.snapshot()
+    #expect(snapshot.requestCount == 0)
+    #expect(snapshot.deliveries.isEmpty)
+    #expect(controller.testNotificationMessage?.contains("permission") == true)
+}
+
+@Test @MainActor func testNotificationContainsErrorsAndPreventsRepeatedClicks() async throws {
+    let suiteName = "UsageGridTests.TestNotification.Failure.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let notifications = TestUsageAlertNotifications(status: .authorized, failDelivery: true, deliveryDelay: .milliseconds(50))
+    let controller = UsageAlertController(preferences: UsageAlertPreferences(defaults: defaults), notifications: notifications)
+    await controller.refreshPermissionStatus()
+
+    let first = Task { await controller.sendTestNotification(cooldown: .seconds(1)) }
+    try? await Task.sleep(for: .milliseconds(10))
+    #expect(!(await controller.sendTestNotification(cooldown: .seconds(1))))
+    #expect(!(await first.value))
+    #expect(controller.testNotificationMessage == "Couldn’t request the test notification.")
+    #expect(!(await controller.sendTestNotification(cooldown: .seconds(1))))
+    #expect(await notifications.snapshot().deliveries.count == 1)
 }

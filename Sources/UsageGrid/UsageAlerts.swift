@@ -91,6 +91,10 @@ final class UsageAlertController {
 
     private(set) var permissionStatus: UsageAlertPermissionStatus = .notDetermined
     private(set) var deliveryError: String?
+    private(set) var testNotificationMessage: String?
+    private(set) var isSendingTestNotification = false
+    private(set) var isTestNotificationCoolingDown = false
+    @ObservationIgnored private var testCooldownTask: Task<Void, Never>?
 
     init(
         preferences: UsageAlertPreferences = UsageAlertPreferences(),
@@ -107,6 +111,10 @@ final class UsageAlertController {
         case .notDetermined: preferences.enabled ? "Checking notification permission…" : "Permission will be requested only when alerts are enabled."
         case .unavailable: "Notification permission is unavailable."
         }
+    }
+
+    var canSendTestNotification: Bool {
+        permissionStatus == .authorized && !isSendingTestNotification && !isTestNotificationCoolingDown
     }
 
     func refreshPermissionStatus() async {
@@ -149,6 +157,38 @@ final class UsageAlertController {
     }
 
     @discardableResult
+    func sendTestNotification(cooldown: Duration = .seconds(2)) async -> Bool {
+        guard !isSendingTestNotification, !isTestNotificationCoolingDown else { return false }
+        let currentPermission = await notifications.permissionStatus()
+        permissionStatus = currentPermission
+        guard currentPermission == .authorized else {
+            testNotificationMessage = "Notification permission is required to send a test."
+            return false
+        }
+
+        isSendingTestNotification = true
+        testNotificationMessage = nil
+        let notification = UsageAlertNotification(
+            identifier: "usagegrid.test.\(UUID().uuidString)",
+            title: "UsageGrid test notification",
+            body: "Notifications are working. Usage alerts will warn you when your selected threshold is reached."
+        )
+
+        let submitted: Bool
+        do {
+            try await notifications.deliver(notification)
+            testNotificationMessage = "Test notification requested"
+            submitted = true
+        } catch {
+            testNotificationMessage = "Couldn’t request the test notification."
+            submitted = false
+        }
+        isSendingTestNotification = false
+        beginTestCooldown(cooldown)
+        return submitted
+    }
+
+    @discardableResult
     func evaluate(windows: [CodexUsageWindow]?, isFresh: Bool) async -> Bool {
         guard preferences.enabled, isFresh,
               let primary = windows?.first(where: { $0.id == "primary" }),
@@ -169,7 +209,7 @@ final class UsageAlertController {
         let resetDescription = resetsAt.formatted(date: .abbreviated, time: .shortened)
         let notification = UsageAlertNotification(
             identifier: "usagegrid.codex.primary.\(windowKey)",
-            title: "Codex usage getting low",
+            title: "Codex usage limit approaching",
             body: "Codex \(primary.label) is \(used)% used, \(remaining)% remaining. Resets \(resetDescription)."
         )
 
@@ -187,5 +227,15 @@ final class UsageAlertController {
     func openNotificationSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    private func beginTestCooldown(_ duration: Duration) {
+        isTestNotificationCoolingDown = true
+        testCooldownTask?.cancel()
+        testCooldownTask = Task { [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            self?.isTestNotificationCoolingDown = false
+        }
     }
 }

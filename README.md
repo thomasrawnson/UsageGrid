@@ -49,6 +49,8 @@ Settings → Usage Alerts can optionally notify when the Codex primary window re
 
 Alerts are evaluated only after a successful fresh reading from the existing refresh coordinator. Missing, stale, or failed readings never notify. Each identifiable primary reset window can alert at most once, including across app restarts and settings changes. A new reset timestamp starts a new eligible window. If Codex omits reset metadata, UsageGrid skips alert delivery because it cannot safely deduplicate that window. Delivery failures are shown in Settings and do not affect usage refresh.
 
+When notification permission is granted, Settings also offers **Send test notification** even if automatic usage alerts are off. The test is explicitly labelled and contains no quota values. It does not change alert preferences or reset-window deduplication, and repeated clicks are briefly rate-limited. “Test notification requested” means macOS accepted the request; Notification Settings or Focus may still suppress the visible banner. Returning to Settings refreshes permission status after changes in System Settings.
+
 ## T01 repository and Mac baseline
 
 - Starting directory on 22 September 2026: planning documents and reference PNGs only; no `.git`, app code, project, tests, or `AGENTS.md`. No unrelated source changes were present.

@@ -89,6 +89,22 @@ struct SettingsView: View {
                     }
                 }
 
+
+                Button(alerts.isSendingTestNotification ? "Requesting test…" : "Send test notification") {
+                    Task { await alerts.sendTestNotification() }
+                }
+                .disabled(!alerts.canSendTestNotification)
+
+                Text("A test does not use quota data. macOS notification settings or Focus may suppress the banner.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let testNotificationMessage = alerts.testNotificationMessage {
+                    Text(testNotificationMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 if let deliveryError = alerts.deliveryError {
                     Text(deliveryError)
                         .font(.caption)
