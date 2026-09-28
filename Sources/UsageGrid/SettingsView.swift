@@ -3,6 +3,9 @@ import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
+    @Bindable var preferences: MenuBarPreferences
+    @Bindable var codex: CodexRefreshCoordinator
+    @Bindable var alerts: UsageAlertController
     @State private var status = SMAppService.mainApp.status
     @State private var errorMessage: String?
 
@@ -39,6 +42,59 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            Section("Menu Bar") {
+                Picker("Menu bar display", selection: $preferences.displayMode) {
+                    ForEach(MenuBarDisplayMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+
+                if preferences.displayMode != .iconOnly {
+                    Picker("Usage window", selection: $preferences.windowSelection) {
+                        ForEach(MenuBarWindowSelection.allCases) { selection in
+                            Text(MenuBarUsagePresentation.windowTitle(for: selection, windows: codex.windows)).tag(selection)
+                        }
+                    }
+                }
+            }
+
+            Section("Usage Alerts") {
+                Toggle("Alert when primary usage reaches threshold", isOn: Binding(
+                    get: { alerts.preferences.enabled },
+                    set: { enabled in Task { await alerts.setEnabled(enabled) } }
+                ))
+
+                Picker("Threshold", selection: Binding(
+                    get: { alerts.preferences.threshold },
+                    set: { alerts.preferences.threshold = $0 }
+                )) {
+                    ForEach(UsageAlertThreshold.allCases) { threshold in
+                        Text(threshold.title).tag(threshold)
+                    }
+                }
+                .disabled(!alerts.preferences.enabled)
+
+                Text("Threshold is percentage used for the Codex primary window, regardless of the menu-bar display setting.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text(alerts.permissionMessage)
+                    .font(.caption)
+                    .foregroundStyle(alerts.permissionStatus == .denied ? .orange : .secondary)
+
+                if alerts.permissionStatus == .denied {
+                    Button("Open Notification Settings") {
+                        alerts.openNotificationSettings()
+                    }
+                }
+
+                if let deliveryError = alerts.deliveryError {
+                    Text(deliveryError)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 420)
@@ -50,9 +106,13 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 12)
         }
-        .onAppear(perform: refreshStatus)
+        .onAppear {
+            refreshStatus()
+            Task { await alerts.refreshPermissionStatus() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshStatus()
+            Task { await alerts.refreshPermissionStatus() }
         }
     }
 

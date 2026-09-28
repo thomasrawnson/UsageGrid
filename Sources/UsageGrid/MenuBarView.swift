@@ -1,10 +1,12 @@
 import SwiftUI
 import AppKit
+import Observation
 
 struct MenuBarView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.colorScheme) private var colorScheme
-    @State private var codex = CodexRefreshState()
+    @Bindable var codex: CodexRefreshCoordinator
+    @Bindable var alerts: UsageAlertController
     @State private var selectedProvider: SelectedProvider = .codex
 
     private var palette: ProgrammingPalette { ProgrammingPalette(colorScheme: colorScheme) }
@@ -19,7 +21,7 @@ struct MenuBarView: View {
                     .foregroundStyle(.primary)
                 Spacer(minLength: 4)
                 if selectedProvider == .codex, let lastUpdated = codex.lastUpdated {
-                    Text(lastUpdated.formatted(date: .omitted, time: .shortened))
+                    Text("Last updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
                         .font(.system(.caption, design: .monospaced))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -53,13 +55,18 @@ struct MenuBarView: View {
             .overlay(Rectangle().stroke(palette.border, lineWidth: 1).allowsHitTesting(false))
 
             if selectedProvider == .codex {
-                if codex.refreshFailed, codex.windows != nil {
-                    HStack(spacing: 6) {
-                        Text(">")
-                            .foregroundStyle(palette.syntax)
-                            .accessibilityHidden(true)
-                        Text(codex.errorMessage.map { "Refresh failed · \($0) · showing last update" } ?? "Refresh failed · showing last update")
-                            .foregroundStyle(.secondary)
+                if codex.isStale {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(">")
+                                .foregroundStyle(palette.syntax)
+                                .accessibilityHidden(true)
+                            Text("Stale · \(codex.errorMessage ?? "Refresh failed")")
+                                .foregroundStyle(.secondary)
+                        }
+                        Button("Retry", action: refreshCodex)
+                            .buttonStyle(.plain)
+                            .foregroundStyle(palette.accent)
                     }
                     .font(.system(.caption, design: .monospaced))
                 }
@@ -88,6 +95,9 @@ struct MenuBarView: View {
                             Text(codex.errorMessage ?? "Could not read Codex usage")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            Button("Retry", action: refreshCodex)
+                                .buttonStyle(.plain)
+                                .foregroundStyle(palette.accent)
                         }
                     }
                 }
@@ -144,15 +154,17 @@ struct MenuBarView: View {
         .padding(14)
         .frame(width: 350)
         .background(palette.canvas)
-        .onAppear(perform: refreshCodex)
+        .onAppear {
+            codex.successfulRefreshHandler = { windows, _ in
+                Task { await alerts.evaluate(windows: windows, isFresh: true) }
+            }
+            codex.activate()
+            refreshCodex()
+        }
     }
 
     private func refreshCodex() {
-        guard codex.start() else { return }
-        Task {
-            let result = await CodexUsageReader.read()
-            codex.finish(with: result, at: Date())
-        }
+        codex.requestRefresh()
     }
 
     private func providerTab(_ provider: SelectedProvider, title: String) -> some View {
@@ -193,12 +205,11 @@ struct CodexRefreshState {
     private(set) var refreshFailed = false
     private(set) var lastUpdated: Date?
     private(set) var errorMessage: String?
+    var isStale: Bool { refreshFailed && windows != nil }
 
     mutating func start() -> Bool {
         guard !isRefreshing else { return false }
         isRefreshing = true
-        refreshFailed = false
-        errorMessage = nil
         return true
     }
 
@@ -218,6 +229,81 @@ struct CodexRefreshState {
             refreshFailed = true
             errorMessage = result.error?.userMessage
         }
+    }
+}
+
+@MainActor
+@Observable
+final class CodexRefreshCoordinator {
+    private var state = CodexRefreshState()
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshTimer: Timer?
+    @ObservationIgnored private var wakeObserver: NSObjectProtocol?
+    @ObservationIgnored private var lastWakeRequestAt: Date?
+    @ObservationIgnored var successfulRefreshHandler: (([CodexUsageWindow], Date) -> Void)?
+
+    var windows: [CodexUsageWindow]? { state.windows }
+    var isRefreshing: Bool { state.isRefreshing }
+    var refreshFailed: Bool { state.refreshFailed }
+    var isStale: Bool { state.isStale }
+    var lastUpdated: Date? { state.lastUpdated }
+    var errorMessage: String? { state.errorMessage }
+
+    func activate() {
+        guard wakeObserver == nil else { return }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleWake() }
+        }
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.requestRefresh() }
+        }
+    }
+
+    @discardableResult
+    func requestRefresh(
+        reader: @escaping @Sendable () async -> CodexUsageReadResult = { await CodexUsageReader.read() }
+    ) -> Bool {
+        guard refreshTask == nil, state.start() else { return false }
+        refreshTask = Task { [weak self] in
+            let result = await reader()
+            guard let self else { return }
+            state.finish(with: result, at: Date())
+            if let windows = result.windows, let lastUpdated = state.lastUpdated {
+                successfulRefreshHandler?(windows, lastUpdated)
+            }
+            refreshTask = nil
+        }
+        return true
+    }
+
+    @discardableResult
+    func handleWake(
+        at date: Date = Date(),
+        reader: @escaping @Sendable () async -> CodexUsageReadResult = { await CodexUsageReader.read() }
+    ) -> Bool {
+        if let lastWakeRequestAt, date.timeIntervalSince(lastWakeRequestAt) < 2 { return false }
+        lastWakeRequestAt = date
+        return requestRefresh(reader: reader)
+    }
+
+    func waitForRefresh() async {
+        await refreshTask?.value
+    }
+
+    func stop() async {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
+        refreshTask?.cancel()
+        await refreshTask?.value
+        refreshTask = nil
     }
 }
 

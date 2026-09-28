@@ -2,6 +2,10 @@ import SwiftUI
 
 @main
 struct UsageGridApp: App {
+    @State private var codex = CodexRefreshCoordinator()
+    @State private var menuBarPreferences = MenuBarPreferences()
+    @State private var usageAlerts = UsageAlertController()
+
     init() {
         #if DEBUG && !SWIFT_PACKAGE
         assert(Bundle.main.bundleIdentifier == "com.plutonightlabs.UsageGrid")
@@ -9,13 +13,30 @@ struct UsageGridApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("UsageGrid", systemImage: "square.grid.3x3") {
-            MenuBarView()
+        MenuBarExtra {
+            MenuBarView(codex: codex, alerts: usageAlerts)
+        } label: {
+            let presentation = MenuBarUsagePresentation.make(
+                mode: menuBarPreferences.displayMode,
+                selection: menuBarPreferences.windowSelection,
+                windows: codex.windows,
+                isStale: codex.isStale,
+                isRefreshing: codex.isRefreshing,
+                lastUpdated: codex.lastUpdated
+            )
+            HStack(spacing: 4) {
+                Image(systemName: "square.grid.3x3")
+                if let text = presentation.text {
+                    Text(text)
+                        .monospacedDigit()
+                }
+            }
+            .accessibilityLabel(presentation.accessibilityLabel)
         }
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView()
+            SettingsView(preferences: menuBarPreferences, codex: codex, alerts: usageAlerts)
         }
     }
 }

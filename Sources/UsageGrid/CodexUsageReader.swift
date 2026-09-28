@@ -8,11 +8,21 @@ struct CodexUsageWindow {
     let usedPercentage: Double
     let resetText: String
     let durationMinutes: Int
+    let resetsAt: Date?
+
+    init(id: String, label: String, usedPercentage: Double, resetText: String, durationMinutes: Int, resetsAt: Date? = nil) {
+        self.id = id
+        self.label = label
+        self.usedPercentage = usedPercentage
+        self.resetText = resetText
+        self.durationMinutes = durationMinutes
+        self.resetsAt = resetsAt
+    }
 }
 
 enum CodexUsageReadError: Equatable {
     case executableNotFound, processLaunchFailed, initializationTimedOut, initializationFailed
-    case requestTimedOut, authenticationRequired, requestFailed, decodingFailed
+    case requestTimedOut, authenticationRequired, requestFailed, decodingFailed, cancelled
 
     var userMessage: String {
         switch self {
@@ -24,6 +34,7 @@ enum CodexUsageReadError: Equatable {
         case .authenticationRequired: "Codex is signed out. Sign in with Codex, then refresh."
         case .requestFailed: "Codex rejected the usage request. Check Codex /status."
         case .decodingFailed: "Codex returned no supported usage windows. Update UsageGrid if /status works."
+        case .cancelled: "Codex usage refresh was cancelled. Retry."
         }
     }
 }
@@ -43,8 +54,23 @@ enum CodexUsageReader {
         "/Applications/ChatGPT.app/Contents/Resources/codex"
     ]
 
-    static func read() async -> CodexUsageReadResult {
-        await Task.detached(priority: .userInitiated) { readFromAppServer() }.value
+    static func read(timeout: TimeInterval = 10) async -> CodexUsageReadResult {
+        guard let path = resolveExecutable() else {
+            logger.error("Codex executable not found in supported ChatGPT locations")
+            return .failure(.executableNotFound)
+        }
+        return await read(executablePath: path, timeout: timeout)
+    }
+
+    static func read(executablePath: String, timeout: TimeInterval) async -> CodexUsageReadResult {
+        let worker = Task.detached(priority: .userInitiated) {
+            readFromAppServer(path: executablePath, deadline: Date().addingTimeInterval(timeout))
+        }
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
     }
 
     static func resolveExecutable(isExecutable: (String) -> Bool = FileManager.default.isExecutableFile(atPath:)) -> String? {
@@ -73,13 +99,19 @@ enum CodexUsageReader {
         else if duration.isMultiple(of: 1_440) { label = "\(duration / 1_440)-day limit" }
         else if duration.isMultiple(of: 60) { label = "\(duration / 60)-hour limit" }
         else { label = "\(duration)-minute limit" }
+        let resetDate = resetDate(value["resetsAt"] as? Double, now: now)
         return CodexUsageWindow(id: id, label: label, usedPercentage: min(100, max(0, used)),
-                                resetText: resetText(value["resetsAt"] as? Double, now: now), durationMinutes: duration)
+                                resetText: resetText(resetDate, now: now), durationMinutes: duration, resetsAt: resetDate)
     }
 
-    private static func resetText(_ epoch: Double?, now: Date) -> String {
-        guard let epoch, epoch.isFinite, abs(epoch - now.timeIntervalSince1970) <= 366 * 24 * 60 * 60 else { return "Reset unavailable" }
-        let seconds = max(0, epoch - now.timeIntervalSince1970)
+    private static func resetDate(_ epoch: Double?, now: Date) -> Date? {
+        guard let epoch, epoch.isFinite, abs(epoch - now.timeIntervalSince1970) <= 366 * 24 * 60 * 60 else { return nil }
+        return Date(timeIntervalSince1970: epoch)
+    }
+
+    private static func resetText(_ resetDate: Date?, now: Date) -> String {
+        guard let resetDate else { return "Reset unavailable" }
+        let seconds = max(0, resetDate.timeIntervalSince(now))
         if seconds == 0 { return "Reset due" }
         if seconds >= 86_400 {
             let hours = Int(ceil(seconds / 3_600)), days = hours / 24, remainingHours = hours % 24
@@ -93,11 +125,7 @@ enum CodexUsageReader {
         return "Resets in \(minutes)m"
     }
 
-    private static func readFromAppServer() -> CodexUsageReadResult {
-        guard let path = resolveExecutable() else {
-            logger.error("Codex executable not found in supported ChatGPT locations")
-            return .failure(.executableNotFound)
-        }
+    private static func readFromAppServer(path: String, deadline: Date) -> CodexUsageReadResult {
         logger.info("Starting bundled Codex app-server; configuration environment is inherited")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
@@ -113,14 +141,14 @@ enum CodexUsageReader {
         defer {
             input.fileHandleForWriting.closeFile()
             output.fileHandleForReading.closeFile()
-            if process.isRunning { process.terminate() }
-            process.waitUntilExit()
+            stop(process)
         }
 
         var buffer = Data()
         let initialize = #"{"method":"initialize","id":1,"params":{"clientInfo":{"name":"usagegrid","title":"UsageGrid","version":"0.1.0"}}}"#
         input.fileHandleForWriting.write(Data((initialize + "\n").utf8))
-        guard let initializationReply = readReply(id: 1, from: output, buffer: &buffer, deadline: Date().addingTimeInterval(8)) else {
+        guard let initializationReply = readReply(id: 1, from: output, buffer: &buffer, deadline: deadline) else {
+            if Task.isCancelled { return .failure(.cancelled) }
             logger.error("Codex app-server initialization timed out")
             return .failure(.initializationTimedOut)
         }
@@ -131,7 +159,8 @@ enum CodexUsageReader {
 
         input.fileHandleForWriting.write(Data((#"{"method":"initialized"}"# + "\n").utf8))
         input.fileHandleForWriting.write(Data((#"{"method":"account/rateLimits/read","id":2,"params":{"supportsLunaReserve":false,"excludeResetCreditDetails":true}}"# + "\n").utf8))
-        guard let reply = readReply(id: 2, from: output, buffer: &buffer, deadline: Date().addingTimeInterval(8)) else {
+        guard let reply = readReply(id: 2, from: output, buffer: &buffer, deadline: deadline) else {
+            if Task.isCancelled { return .failure(.cancelled) }
             logger.error("Codex rate-limit request timed out")
             return .failure(.requestTimedOut)
         }
@@ -162,12 +191,13 @@ enum CodexUsageReader {
 
     private static func readReply(id: Int, from pipe: Pipe, buffer: inout Data, deadline: Date) -> Data? {
         while Date() < deadline {
+            guard !Task.isCancelled else { return nil }
             while let newline = buffer.firstIndex(of: 10) {
                 let line = Data(buffer[..<newline])
                 buffer.removeSubrange(...newline)
                 if let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any], message["id"] as? Int == id { return line }
             }
-            let timeout = Int32(max(1, min(1000, (deadline.timeIntervalSinceNow * 1000).rounded(.up))))
+            let timeout = Int32(max(1, min(100, (deadline.timeIntervalSinceNow * 1000).rounded(.up))))
             var descriptor = pollfd(fd: pipe.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
             guard poll(&descriptor, 1, timeout) > 0 else { continue }
             var chunk = [UInt8](repeating: 0, count: 4096)
@@ -176,5 +206,21 @@ enum CodexUsageReader {
             buffer.append(contentsOf: chunk[..<count])
         }
         return nil
+    }
+
+    private static func stop(_ process: Process) {
+        guard process.isRunning else {
+            process.waitUntilExit()
+            return
+        }
+        process.terminate()
+        let graceDeadline = Date().addingTimeInterval(0.5)
+        while process.isRunning, Date() < graceDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+        process.waitUntilExit()
     }
 }

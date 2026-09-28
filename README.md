@@ -31,6 +31,24 @@ The Release app is `DerivedData/Build/Products/Release/UsageGrid.app`; the archi
 
 Diagnostic logging records only failure categories and window counts. It does not record tokens, credentials, account identifiers, or complete provider payloads.
 
+### Refresh and freshness
+
+UsageGrid performs one Codex refresh at a time. Opening the panel, the regular 60-second refresh, manual Retry, and wake-from-sleep requests share the same coordinator, so overlapping triggers do not start competing app-server processes. Each refresh has one end-to-end timeout and always stops its child process on success, failure, timeout, or cancellation.
+
+After a successful reading, a later failure retains the last known windows but labels them **Stale**, keeps **Last updated** fixed at the last successful time, and shows an actionable error with Retry. A successful retry replaces the entire reading and clears the stale state; if a newer response omits an optional window, that older window disappears. With no prior success, UsageGrid continues to show usage unavailable rather than zero or demo data. Duplicate wake notifications are coalesced and trigger a refresh without disrupting one already in progress.
+
+### Menu-bar usage
+
+Settings → Menu Bar controls whether the status item shows only its icon, the selected Codex window’s percentage used, or its percentage remaining. Icon only is the default. Primary and secondary window choices are persisted independently, and Settings uses the provider’s actual window-duration label whenever that window is available.
+
+The menu-bar value comes from the same authoritative reading as the panel. A missing selected window displays `—` and never silently switches to another window. Retained data displays a compact `⚠︎` stale marker until a successful refresh replaces it. The accessible status-item label identifies Codex, the selected window, used or remaining value, and freshness. Preferences update the status item immediately and survive app restarts.
+
+### Usage alerts
+
+Settings → Usage Alerts can optionally notify when the Codex primary window reaches 80%, 90%, or 95% used; alerts are off by default and 90% is the default threshold. The threshold always means percentage **used**, regardless of whether the menu bar displays used or remaining quota. Notification permission is requested only when alerts are enabled. If permission is denied, UsageGrid leaves alerts off and links to Notification Settings rather than repeatedly prompting.
+
+Alerts are evaluated only after a successful fresh reading from the existing refresh coordinator. Missing, stale, or failed readings never notify. Each identifiable primary reset window can alert at most once, including across app restarts and settings changes. A new reset timestamp starts a new eligible window. If Codex omits reset metadata, UsageGrid skips alert delivery because it cannot safely deduplicate that window. Delivery failures are shown in Settings and do not affect usage refresh.
+
 ## T01 repository and Mac baseline
 
 - Starting directory on 22 September 2026: planning documents and reference PNGs only; no `.git`, app code, project, tests, or `AGENTS.md`. No unrelated source changes were present.

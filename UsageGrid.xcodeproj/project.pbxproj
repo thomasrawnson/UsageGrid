@@ -10,6 +10,8 @@
 		A10000000000000000000002 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* MenuBarView.swift */; };
 		A10000000000000000000003 /* CodexUsageReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* CodexUsageReader.swift */; };
 		A10000000000000000000004 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000014 /* SettingsView.swift */; };
+		A10000000000000000000006 /* MenuBarDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000016 /* MenuBarDisplay.swift */; };
+		A10000000000000000000007 /* UsageAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000017 /* UsageAlerts.swift */; };
 		A10000000000000000000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000015 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -20,6 +22,8 @@
 		A10000000000000000000013 /* CodexUsageReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexUsageReader.swift; sourceTree = "<group>"; };
 		A10000000000000000000014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A10000000000000000000015 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A10000000000000000000016 /* MenuBarDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarDisplay.swift; sourceTree = "<group>"; };
+		A10000000000000000000017 /* UsageAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAlerts.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -39,6 +43,8 @@
 				A10000000000000000000012 /* MenuBarView.swift */,
 				A10000000000000000000013 /* CodexUsageReader.swift */,
 				A10000000000000000000014 /* SettingsView.swift */,
+				A10000000000000000000016 /* MenuBarDisplay.swift */,
+				A10000000000000000000017 /* UsageAlerts.swift */,
 			);
 			name = UsageGrid;
 			path = Sources/UsageGrid;
@@ -111,6 +117,8 @@
 				A10000000000000000000002 /* MenuBarView.swift in Sources */,
 				A10000000000000000000003 /* CodexUsageReader.swift in Sources */,
 				A10000000000000000000004 /* SettingsView.swift in Sources */,
+				A10000000000000000000006 /* MenuBarDisplay.swift in Sources */,
+				A10000000000000000000007 /* UsageAlerts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
