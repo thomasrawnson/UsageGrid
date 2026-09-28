@@ -298,6 +298,10 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Support diagnostics") {
+                SupportDiagnosticsView(codex: codex, history: history, proAccess: proAccess)
+            }
+
             Section("About") {
                 Text(versionText)
                     .foregroundStyle(.secondary)

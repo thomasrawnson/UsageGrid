@@ -33,6 +33,8 @@ The Release app is `DerivedData/Build/Products/Release/UsageGrid.app`; the archi
 
 Diagnostic logging records only failure categories and window counts. It does not record tokens, credentials, account identifiers, or complete provider payloads.
 
+Settings → Help → **Support diagnostics** provides a selectable plain-text snapshot with an explicit Copy action. It is available in Free and Pro, stays on the Mac unless the user copies it, and does not refresh usage, start Codex, request notification permission, or read logs or credentials. The report is built from a fixed allowlist: app/OS/architecture, categorized connection and error state, reading freshness and elapsed time, the known executable source category, notification authorization/presentation settings, local-history status, and effective access (including an explicit Debug-simulation label). Unknown state remains labelled unknown or unavailable. Raw errors, paths, account details, usage values, history samples, notification contents, and reset timestamps are excluded.
+
 ### First-run Codex setup
 
 Before the first usable reading, the Codex panel shows compact connection guidance derived from the real refresh result: connecting, supported executable not found, sign-in required, connection/request failure, or connected with no supported usage window. Retry uses the same shared refresh coordinator. If `/Applications/ChatGPT.app` exists, the panel can open it, but UsageGrid does not download software, run login commands, change Codex configuration, or request credentials.
@@ -64,6 +66,8 @@ Settings uses five native tabs so navigation stays visible while each tab’s fo
 Programming and Professional are Free themes. Settings includes a compact six-theme gallery and isolated previews for four reference-led Pro themes: 90s Retro, Anime, Zen Forest, and Space. Each preview is explicitly labelled as sample data and shows normal, stale, unavailable, and error states without changing the saved theme, fetching usage, or evaluating alerts.
 
 The current visual mapping is: Programming → `IMG_7529.PNG`, Professional → `IMG_7530.PNG`, 90s Retro → `IMG_7525.PNG`, Anime → `IMG_7526.PNG`, Zen Forest → `IMG_7527.PNG`, and Space → `IMG_7528.PNG`. Christmas (`IMG_7531.PNG`) and Halloween (`IMG_7532.PNG`) remain as design references but are deferred from the current offering. Preview boards exported during visual verification are in [`docs/rendered-theme-previews`](docs/rendered-theme-previews).
+
+Theme typography keeps expressive faces in headings and decorative presentation while usage percentages, reset copy, chart axes, timestamps, and session-change values use stable, legible numerals. This preserves each reference-led identity without allowing decorative typography to reduce the clarity of operational data.
 
 UsageGrid Pro is planned as a one-off purchase, but purchasing is not available yet. Production builds remain Free: a saved premium theme identifier is not treated as proof of purchase, and premium themes cannot become the active theme without a future verified entitlement. Legacy Midnight, Paper, Aurora, Christmas, and Halloween saved IDs fall back to Programming. There are no Buy, Restore Purchases, licence, subscription, or payment controls in this slice. Codex remains the only live usage integration; previews do not imply Claude support.
 

@@ -53,7 +53,9 @@ struct UsageHistoryChartView: View {
                 .accessibilityLabel(accessibilitySummary)
             }
         }
-        .font(.caption)
+        .font(.system(.caption, design: .default))
+        .fontDesign(.monospaced)
+        .monospacedDigit()
     }
 
     private var accessibilitySummary: String {
@@ -193,7 +195,9 @@ struct UsageSessionChangeView: View {
                 Text("\(change.percentagePoints, format: .number.precision(.fractionLength(0))) percentage points used since \(change.since.formatted(date: .omitted, time: .shortened))\(isFresh ? "" : " · last observed \(change.observedAt.formatted(date: .omitted, time: .shortened)); stale")")
             } else { Text("Collecting readings…") }
         }
-        .font(.caption)
+        .font(.system(.caption, design: .default))
+        .fontDesign(.monospaced)
+        .monospacedDigit()
         .accessibilityLabel("Observed account usage. \(isFresh ? "Fresh" : "Not current").")
     }
 }

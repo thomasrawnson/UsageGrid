@@ -466,7 +466,7 @@ struct CodexWindowRow: View {
             .font(.system(.caption, design: .monospaced))
             .monospacedDigit()
         }
-        .fontDesign(palette.fontDesign)
+        .fontDesign(.monospaced)
     }
 
     @ViewBuilder

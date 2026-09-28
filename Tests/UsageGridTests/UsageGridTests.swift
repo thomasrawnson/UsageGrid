@@ -6,6 +6,63 @@ import AppKit
 import UserNotifications
 @testable import UsageGrid
 
+@Test func supportDiagnosticsUsesOnlyAllowlistedSafeFields() {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    let sentinel = "SECRET user@example.com /Users/private token=abc123"
+    let report = SupportDiagnosticsReport.make(input: SupportDiagnosticsInput(
+        appVersion: "1.2.3", appBuild: "45", macOSVersion: "Version 15.0", architecture: "arm64",
+        isRefreshing: false, hasReading: true, isStale: true,
+        lastSuccessfulRefresh: now.addingTimeInterval(-125), lastError: .authenticationRequired,
+        unsafeErrorDetail: sentinel, executableSource: "ChatGPT bundled Codex",
+        notificationSettings: SupportNotificationSettings(authorization: "Authorized", alerts: "Enabled", notificationCentre: "Disabled"),
+        historyRecordingEnabled: true, historyHasStorageError: true,
+        hasProAccess: true, isDebugSimulation: true
+    ), now: now)
+
+    #expect(report.contains("App version: 1.2.3"))
+    #expect(report.contains("Connection: Connected; latest refresh failed"))
+    #expect(report.contains("Last error category: Authentication"))
+    #expect(report.contains("Last error: Codex sign-in is required."))
+    #expect(report.contains("Last successful refresh: 2 minutes ago"))
+    #expect(report.contains("Notification Centre: Disabled"))
+    #expect(report.contains("History storage: Unavailable (local storage error)"))
+    #expect(report.contains("Access: Pro (Debug simulation; not a purchase)"))
+    #expect(!report.contains(sentinel))
+    #expect(!report.contains("user@example.com"))
+    #expect(!report.contains("/Users/"))
+}
+
+@Test func supportDiagnosticsReportsUnknownAndUnavailableStates() {
+    let report = SupportDiagnosticsReport.make(input: SupportDiagnosticsInput(
+        appVersion: nil, appBuild: nil, macOSVersion: nil, architecture: nil,
+        isRefreshing: false, hasReading: false, isStale: false,
+        lastSuccessfulRefresh: nil, lastError: nil, unsafeErrorDetail: nil,
+        executableSource: nil, notificationSettings: nil,
+        historyRecordingEnabled: false, historyHasStorageError: false,
+        hasProAccess: false, isDebugSimulation: false
+    ))
+
+    #expect(report.contains("App version: Unknown"))
+    #expect(report.contains("Connection: Not yet established"))
+    #expect(report.contains("Reading freshness: Unavailable"))
+    #expect(report.contains("Last successful refresh: Unavailable"))
+    #expect(report.contains("Notification permission: Unknown"))
+    #expect(report.contains("Access: Free"))
+}
+
+@Test func supportDiagnosticsMapsEveryReaderErrorToFixedSafeCopy() {
+    let errors: [CodexUsageReadError] = [
+        .executableNotFound, .processLaunchFailed, .initializationTimedOut, .initializationFailed,
+        .requestTimedOut, .authenticationRequired, .requestFailed, .decodingFailed, .cancelled
+    ]
+    for error in errors {
+        let mapped = SupportDiagnosticsReport.safeErrorDescription(error)
+        #expect(mapped.category != "Unknown")
+        #expect(!mapped.description.isEmpty)
+        #expect(!mapped.description.contains("/"))
+    }
+}
+
 actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
     var status: UsageAlertPermissionStatus
     var requestResult: Bool
