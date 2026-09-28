@@ -26,7 +26,7 @@ enum CodexUsageReadError: Equatable {
 
     var userMessage: String {
         switch self {
-        case .executableNotFound: "Codex executable not found. Update or reinstall ChatGPT."
+        case .executableNotFound: "Supported Codex executable not found. Open or update ChatGPT, then retry."
         case .processLaunchFailed: "Could not start Codex. Check the ChatGPT installation."
         case .initializationTimedOut: "Codex did not initialize in time. Try again."
         case .initializationFailed: "Codex initialization failed. Update ChatGPT and try again."

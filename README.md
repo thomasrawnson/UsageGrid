@@ -31,6 +31,18 @@ The Release app is `DerivedData/Build/Products/Release/UsageGrid.app`; the archi
 
 Diagnostic logging records only failure categories and window counts. It does not record tokens, credentials, account identifiers, or complete provider payloads.
 
+### First-run Codex setup
+
+Before the first usable reading, the Codex panel shows compact connection guidance derived from the real refresh result: connecting, supported executable not found, sign-in required, connection/request failure, or connected with no supported usage window. Retry uses the same shared refresh coordinator. If `/Applications/ChatGPT.app` exists, the panel can open it, but UsageGrid does not download software, run login commands, change Codex configuration, or request credentials.
+
+UsageGrid currently discovers Codex only at these existing locations:
+
+- `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`
+- `/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`
+- `/Applications/ChatGPT.app/Contents/Resources/codex`
+
+Codex must be signed in, and UsageGrid reads quota windows through the local Codex app-server integration. The in-app guide remains available from Settings after connection. A first success automatically replaces setup with the normal meter; later failures retain the last reading and use the stale-data flow. Claude remains unavailable and is not enabled by Codex setup.
+
 ### Refresh and freshness
 
 UsageGrid performs one Codex refresh at a time. Opening the panel, the regular 60-second refresh, manual Retry, and wake-from-sleep requests share the same coordinator, so overlapping triggers do not start competing app-server processes. Each refresh has one end-to-end timeout and always stops its child process on success, failure, timeout, or cancellation.

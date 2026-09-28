@@ -80,24 +80,11 @@ struct MenuBarView: View {
                 .font(.system(.subheadline, design: .monospaced).weight(.semibold))
 
                 VStack(alignment: .leading, spacing: 14) {
-                    if let codexWindows = codex.windows {
+                    if let setupState = codex.setupState {
+                        CodexSetupStatusView(state: setupState, retry: refreshCodex)
+                    } else if let codexWindows = codex.windows {
                         ForEach(codexWindows, id: \.id) { window in
                             CodexWindowRow(window: window, accent: palette.accent, remainingCell: palette.remainingCell, syntax: palette.syntax, resetTextColor: palette.resetText)
-                        }
-                    } else {
-                        HStack(spacing: 6) {
-                            Text(">")
-                                .foregroundStyle(palette.syntax)
-                                .accessibilityHidden(true)
-                            Text(codex.refreshFailed ? "Usage unavailable" : "Loading usage…")
-                        }
-                        if codex.refreshFailed {
-                            Text(codex.errorMessage ?? "Could not read Codex usage")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Button("Retry", action: refreshCodex)
-                                .buttonStyle(.plain)
-                                .foregroundStyle(palette.accent)
                         }
                     }
                 }
@@ -123,9 +110,10 @@ struct MenuBarView: View {
                         Text("Usage unavailable")
                     }
                     .foregroundStyle(.secondary)
-                    Text("Live usage source unavailable")
+                    Text("Claude integration is unavailable. Codex setup does not connect Claude.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .font(.system(.callout, design: .monospaced))
                 .padding(12)
@@ -205,6 +193,7 @@ struct CodexRefreshState {
     private(set) var refreshFailed = false
     private(set) var lastUpdated: Date?
     private(set) var errorMessage: String?
+    private(set) var lastError: CodexUsageReadError?
     var isStale: Bool { refreshFailed && windows != nil }
 
     mutating func start() -> Bool {
@@ -225,9 +214,11 @@ struct CodexRefreshState {
             lastUpdated = date
             refreshFailed = false
             errorMessage = nil
+            lastError = nil
         } else {
             refreshFailed = true
             errorMessage = result.error?.userMessage
+            lastError = result.error
         }
     }
 }
@@ -248,6 +239,8 @@ final class CodexRefreshCoordinator {
     var isStale: Bool { state.isStale }
     var lastUpdated: Date? { state.lastUpdated }
     var errorMessage: String? { state.errorMessage }
+    var lastError: CodexUsageReadError? { state.lastError }
+    var setupState: CodexSetupState? { CodexSetupState.from(state) }
 
     func activate() {
         guard wakeObserver == nil else { return }

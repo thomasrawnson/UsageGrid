@@ -59,6 +59,21 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Codex Connection") {
+                if codex.setupState == nil {
+                    Text("Connected · usage available")
+                        .foregroundStyle(.secondary)
+                    DisclosureGroup("Codex setup guide") {
+                        CodexSetupGuideView()
+                            .padding(.top, 4)
+                    }
+                } else if let setupState = codex.setupState {
+                    CodexSetupStatusView(state: setupState) {
+                        codex.requestRefresh()
+                    }
+                }
+            }
+
             Section("Usage Alerts") {
                 Toggle("Alert when primary usage reaches threshold", isOn: Binding(
                     get: { alerts.preferences.enabled },

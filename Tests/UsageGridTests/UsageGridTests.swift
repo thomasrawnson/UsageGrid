@@ -10,15 +10,28 @@ actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
     var deliveries: [UsageAlertNotification] = []
     var failDelivery: Bool
     var deliveryDelay: Duration?
+    var permissionStatusDelays: [Duration]
 
-    init(status: UsageAlertPermissionStatus, requestResult: Bool = false, failDelivery: Bool = false, deliveryDelay: Duration? = nil) {
+    init(status: UsageAlertPermissionStatus, requestResult: Bool = false, failDelivery: Bool = false, deliveryDelay: Duration? = nil, permissionStatusDelays: [Duration] = []) {
         self.status = status
         self.requestResult = requestResult
         self.failDelivery = failDelivery
         self.deliveryDelay = deliveryDelay
+        self.permissionStatusDelays = permissionStatusDelays
     }
 
-    func permissionStatus() async -> UsageAlertPermissionStatus { status }
+    func permissionStatus() async -> UsageAlertPermissionStatus {
+        let result = status
+        if !permissionStatusDelays.isEmpty {
+            let delay = permissionStatusDelays.removeFirst()
+            try? await Task.sleep(for: delay)
+        }
+        return result
+    }
+
+    func setStatus(_ newStatus: UsageAlertPermissionStatus) {
+        status = newStatus
+    }
 
     func requestPermission() async throws -> Bool {
         requestCount += 1
@@ -422,6 +435,43 @@ actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
     #expect(await notifications.snapshot().requestCount == 1)
 }
 
+@Test @MainActor func stalePermissionRefreshCannotUndoNewerEnableAction() async throws {
+    let suiteName = "UsageGridTests.Alerts.RefreshRace.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let preferences = UsageAlertPreferences(defaults: defaults)
+    let notifications = TestUsageAlertNotifications(
+        status: .denied,
+        permissionStatusDelays: [.milliseconds(80), .zero]
+    )
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
+
+    let staleRefresh = Task { await controller.refreshPermissionStatus() }
+    try? await Task.sleep(for: .milliseconds(10))
+    await notifications.setStatus(.authorized)
+    await controller.setEnabled(true)
+    await staleRefresh.value
+
+    #expect(preferences.enabled)
+    #expect(controller.permissionStatus == .authorized)
+}
+
+@Test @MainActor func permissionRefreshDoesNotRewriteAlertPreference() async throws {
+    let suiteName = "UsageGridTests.Alerts.PreferenceSeparation.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let preferences = UsageAlertPreferences(defaults: defaults)
+    preferences.enabled = true
+    let notifications = TestUsageAlertNotifications(status: .denied)
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
+
+    await controller.refreshPermissionStatus()
+
+    #expect(preferences.enabled)
+    #expect(controller.permissionStatus == .denied)
+    #expect(controller.permissionMessage.contains("System Settings"))
+}
+
 @Test @MainActor func usageAlertDeliveryFailureIsContainedAndDeduplicated() async throws {
     let suiteName = "UsageGridTests.Alerts.DeliveryFailure.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -503,4 +553,75 @@ private func alertWindow(used: Double, reset: Date?) -> CodexUsageWindow {
     #expect(controller.testNotificationMessage == "Couldn’t request the test notification.")
     #expect(!(await controller.sendTestNotification(cooldown: .seconds(1))))
     #expect(await notifications.snapshot().deliveries.count == 1)
+}
+
+@Test func codexSetupStateMapsReaderResultsWithoutGuessing() {
+    var state = CodexRefreshState()
+    #expect(CodexSetupState.from(state) == .connecting)
+
+    let failures: [(CodexUsageReadError, CodexSetupState)] = [
+        (.executableNotFound, .executableNotFound),
+        (.authenticationRequired, .authenticationRequired),
+        (.decodingFailed, .usageUnavailable)
+    ]
+    for (error, expected) in failures {
+        state = CodexRefreshState()
+        let started = state.start()
+        #expect(started)
+        state.finish(with: .failure(error), at: Date(timeIntervalSince1970: 1_000))
+        #expect(CodexSetupState.from(state) == expected)
+    }
+
+    for error in [CodexUsageReadError.initializationTimedOut, .requestTimedOut, .requestFailed, .processLaunchFailed] {
+        state = CodexRefreshState()
+        let started = state.start()
+        #expect(started)
+        state.finish(with: .failure(error), at: Date(timeIntervalSince1970: 1_000))
+        guard case .connectionFailure = CodexSetupState.from(state) else {
+            Issue.record("Expected connection failure for \(error)")
+            continue
+        }
+    }
+}
+
+@Test func codexSetupTransitionsDirectlyToUsageAfterFirstSuccess() {
+    var state = CodexRefreshState()
+    #expect(CodexSetupState.from(state) == .connecting)
+    let started = state.start()
+    #expect(started)
+    state.finish(
+        with: .success([CodexUsageWindow(id: "primary", label: "3-hour limit", usedPercentage: 42, resetText: "Resets later", durationMinutes: 180)]),
+        at: Date(timeIntervalSince1970: 1_000)
+    )
+
+    #expect(CodexSetupState.from(state) == nil)
+    #expect(state.windows?.first?.usedPercentage == 42)
+}
+
+@Test func codexSetupShowsUnavailableForSuccessfulResponseWithoutUsageWindows() {
+    var state = CodexRefreshState()
+    let started = state.start()
+    #expect(started)
+    state.finish(with: .success([]), at: Date(timeIntervalSince1970: 1_000))
+
+    #expect(CodexSetupState.from(state) == .usageUnavailable)
+    #expect(state.windows?.isEmpty == true)
+}
+
+@Test func codexSetupDoesNotReplaceStaleUsageAfterLaterFailure() {
+    var state = CodexRefreshState()
+    let firstStarted = state.start()
+    #expect(firstStarted)
+    state.finish(
+        with: .success([CodexUsageWindow(id: "primary", label: "3-hour limit", usedPercentage: 42, resetText: "Resets later", durationMinutes: 180)]),
+        at: Date(timeIntervalSince1970: 1_000)
+    )
+    let refreshStarted = state.start()
+    #expect(refreshStarted)
+    state.finish(with: .failure(.authenticationRequired), at: Date(timeIntervalSince1970: 2_000))
+
+    #expect(CodexSetupState.from(state) == nil)
+    #expect(state.isStale)
+    #expect(state.windows?.first?.usedPercentage == 42)
+    #expect(state.lastUpdated == Date(timeIntervalSince1970: 1_000))
 }
