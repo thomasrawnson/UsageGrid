@@ -7,9 +7,12 @@ struct SettingsView: View {
     @Bindable var codex: CodexRefreshCoordinator
     @Bindable var alerts: UsageAlertController
     @Bindable var themePreferences: ThemePreferences
+    @Bindable var history: UsageHistoryController
     @State private var status = SMAppService.mainApp.status
     @State private var errorMessage: String?
     @State private var previewTheme: UsageTheme?
+    @State private var showingHistoryPreview = false
+    @State private var confirmingHistoryClear = false
 
     private var versionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -71,13 +74,29 @@ struct SettingsView: View {
             Section("UsageGrid Pro") {
                 Text("Everything currently available in UsageGrid remains Free, including live Codex usage, refresh recovery, menu-bar display, alerts, and the Programming theme.")
                     .fixedSize(horizontal: false, vertical: true)
-                Text("The planned Pro offering adds the Midnight, Paper, and Aurora premium themes.")
+                Text("The planned Pro offering adds 90s Retro, Anime, Zen Forest, Space, and usage-history viewing.")
                     .fixedSize(horizontal: false, vertical: true)
                 Text("One-off purchase planned. Purchasing is not available yet.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button("Preview themes") {
-                    previewTheme = UsageTheme.lookup(UsageThemeID.midnight.rawValue)
+                    previewTheme = UsageTheme.lookup(UsageThemeID.retro.rawValue)
+                }
+            }
+
+            Section("Usage History") {
+                Toggle("Record usage history on this Mac", isOn: $history.isRecording)
+                Text("Optional and off by default. Recording occurs only while UsageGrid is running. History viewing is planned for Pro; purchasing is not available yet.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Stores only observation time, window type and duration, reset time, and percentage used for up to seven days. It describes observed account usage, not activity attributable to this Mac, app, or task.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let storageError = history.storageError {
+                    Label(storageError, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+                }
+                HStack {
+                    Button("Preview usage history") { showingHistoryPreview = true }
+                    Button("Clear History", role: .destructive) { confirmingHistoryClear = true }
+                        .disabled(history.samples.isEmpty && history.storageError == nil)
                 }
             }
 
@@ -150,8 +169,8 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(minWidth: 420, idealWidth: 440, maxWidth: 560,
+               minHeight: 480, idealHeight: 620, maxHeight: 720)
         .safeAreaInset(edge: .bottom) {
             Text(versionText)
                 .font(.caption)
@@ -169,6 +188,15 @@ struct SettingsView: View {
         }
         .sheet(item: $previewTheme) { theme in
             ProThemePreviewSheet(theme: theme)
+        }
+        .sheet(isPresented: $showingHistoryPreview) {
+            UsageHistoryPreviewSheet(theme: themePreferences.activeTheme)
+        }
+        .confirmationDialog("Clear all recorded usage history?", isPresented: $confirmingHistoryClear) {
+            Button("Clear History", role: .destructive) { Task { await history.clear() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the local history file and cannot be undone.")
         }
     }
 

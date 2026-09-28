@@ -59,9 +59,23 @@ The menu-bar value comes from the same authoritative reading as the panel. A mis
 
 ### Themes and UsageGrid Pro preview
 
-The existing Programming theme and all current UsageGrid functionality remain Free. Settings includes a compact theme gallery and isolated previews for three planned Pro themes: Midnight, Paper, and Aurora. Each preview is explicitly labelled as sample data and shows normal, stale, unavailable, and error states without changing the saved theme, fetching usage, or evaluating alerts.
+Programming and Professional are Free themes. Settings includes a compact six-theme gallery and isolated previews for four reference-led Pro themes: 90s Retro, Anime, Zen Forest, and Space. Each preview is explicitly labelled as sample data and shows normal, stale, unavailable, and error states without changing the saved theme, fetching usage, or evaluating alerts.
 
-UsageGrid Pro is planned as a one-off purchase, but purchasing is not available yet. Production builds remain Free: a saved premium theme identifier is not treated as proof of purchase, and premium themes cannot become the active theme without a future verified entitlement. There are no Buy, Restore Purchases, licence, subscription, or payment controls in this slice. Codex remains the only live usage integration; theme previews do not imply Claude support.
+The current visual mapping is: Programming → `IMG_7529.PNG`, Professional → `IMG_7530.PNG`, 90s Retro → `IMG_7525.PNG`, Anime → `IMG_7526.PNG`, Zen Forest → `IMG_7527.PNG`, and Space → `IMG_7528.PNG`. Christmas (`IMG_7531.PNG`) and Halloween (`IMG_7532.PNG`) remain as design references but are deferred from the current offering. Preview boards exported during visual verification are in [`docs/rendered-theme-previews`](docs/rendered-theme-previews).
+
+UsageGrid Pro is planned as a one-off purchase, but purchasing is not available yet. Production builds remain Free: a saved premium theme identifier is not treated as proof of purchase, and premium themes cannot become the active theme without a future verified entitlement. Legacy Midnight, Paper, Aurora, Christmas, and Halloween saved IDs fall back to Programming. There are no Buy, Restore Purchases, licence, subscription, or payment controls in this slice. Codex remains the only live usage integration; previews do not imply Claude support.
+
+### Local usage history
+
+Settings → Usage History includes **Record usage history on this Mac**, off by default. It consumes only successful fresh readings already produced by the shared 60-second refresh coordinator; it adds no polling or provider processes and records only observation time, primary/secondary window type, actual duration, reset timestamp, and percentage used. Samples with absent or unusable reset metadata are skipped. Data is stored atomically in Application Support, retained for at most seven days and capped at 25,000 samples. Turning recording off retains unexpired history; **Clear History** removes both memory and disk data.
+
+Charts keep primary and secondary windows separate and never join different reset windows. Segments also break across application runs, missing-window observations, gaps over three minutes, and percentage decreases. No readings are interpolated and window percentages are never added together. Session change means the current UsageGrid process run: after two continuous primary readings it reports percentage points observed since the first reading. Rollover, discontinuity, clearing, or disabling/re-enabling resets that baseline; stale refreshes label the last observation rather than claiming it is current.
+
+Process-run and missing-window segment boundaries are stored with the local history document so restarting UsageGrid does not reconnect previously separated chart lines. Boundary records contain only observation time and window type. Actual session-change values remain Pro-gated in production; Free builds show recording status and the isolated sample preview without exposing the real comparison.
+
+History viewing is planned for Pro and purchasing is unavailable. **Preview usage history** in the popup and Settings uses fixed, clearly labelled sample data and never reads or writes recorded history, refreshes usage, or evaluates alerts. Recorded data and deletion remain accessible to the recording controller without treating a preference as entitlement. Rendered chart, gap, single-observation, and empty-state boards for all six current themes are in [`docs/rendered-history-previews`](docs/rendered-history-previews).
+
+The menu-bar popup uses in-place preview navigation rather than presenting a sheet from the transient menu window. **Back to usage** and Escape return to the live panel; dismissing and reopening starts on live usage. Popup content uses its natural height when it fits and switches to a top-starting bounded scroll area on smaller screens. Settings preview sheets keep their Close controls outside their scrollable bodies and use width-adaptive headers for enlarged text.
 
 ### Usage alerts
 

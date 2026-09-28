@@ -27,7 +27,7 @@ The Release app launched for UG-R07 was:
 
 ## PASS
 
-- `swift test`: 37 tests passed, including theme lookup/fallback, production access rejection, preview isolation, and rendering all 12 premium theme/state combinations.
+- `swift test`: 50 tests passed for UG-C02 and the popup-layout fix, including theme lookup/fallback, production access rejection, history opt-in, persisted-field restrictions and boundaries, retention, missing-window and other segmentation, session calculations, popup navigation reset, clear-generation safety, preview isolation, and rendering history states across all six current themes.
 - Xcode arm64 Release build completed successfully.
 - The configured generic macOS archive workflow completed successfully.
 - `git diff --check` passed after the checklist changes.
@@ -40,9 +40,14 @@ The Release app launched for UG-R07 was:
 - The first configured bundled Codex path, `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`, initialized its app-server and returned supported primary usage-window field types through `account/rateLimits/read`. The redacted probe did not print usage values, account values, credentials, or raw payloads, and its launcher process exited afterward.
 - Source/build inspection found no Release mock or sample usage path. The only `DEBUG` block is a development bundle-ID assertion, and Release has no `DEBUG` compilation condition.
 - Release compiler inputs include Settings, usage alerts, menu-bar display, and first-run setup guidance.
-- Release compiler inputs include the Free/Pro theme catalogue and isolated premium preview UI. Purchasing and payment verification are not implemented.
+- Release compiler inputs include the six-theme Free/Pro catalogue and isolated premium preview UI. Programming and Professional are Free; 90s Retro, Anime, Zen Forest, and Space are preview-only without entitlement. Christmas and Halloween are deferred. Purchasing and payment verification are not implemented.
 - Release uses `ThemeAccess.production`, which always denies premium selection; there is no development override in app settings or Release configuration. An injected entitlement exists only as a testable access-policy input for future verified purchase work.
-- Computed premium-preview text contrast against each theme surface passes WCAG AA for normal text: primary 13.58–15.37:1, secondary 6.41–8.74:1, and labelled success/warning/error text 5.35–10.02:1.
+- Computed premium-preview text contrast against each theme surface passes WCAG AA for normal text: primary 9.48–16.56:1, secondary 5.01–9.41:1, and labelled success/warning/error text 4.77–12.58:1.
+- Four current premium-theme boards were visually inspected against their source images. The boards contain normal, stale, unavailable, and error states with no observed clipping. See `docs/rendered-theme-previews/`.
+- Local history is opt-in and uses fresh coordinator results without additional polling. The persisted JSON schema contains only observation time, window type, duration, reset time, and percentage used; retention is seven days and 25,000 samples. Chart/session previews use isolated sample data and production remains unentitled.
+- Six history preview boards were rendered and visually inspected. An initial dark-theme axis contrast defect was fixed; the final chart, gap, single-observation, and empty states have readable 0–100% axes and no observed clipping. See `docs/rendered-history-previews/`.
+- Popup/history and theme-sheet containers were rendered at default, reduced-height, and enlarged-text configurations. Their fixed headers and Back/Close controls remained visible; `ImageRenderer` did not render the contents of native `ScrollView`, so actual scrolling and interaction remain a manual check. See `docs/rendered-ui-fix/`.
+- Popup history preview navigation is now in-place, resets to live usage on dismissal, and maps Escape to Back before popup dismissal. No parent tap gesture or custom outside-click monitor exists; the removed sheet presentation was the only separate lifecycle attached to the transient `MenuBarExtra` window.
 - Application logging is limited to refresh stages, failure categories, and window counts. Codex stderr is discarded; credentials, account identifiers, environment contents, and raw usage payloads are not logged.
 
 ## FAIL
@@ -61,7 +66,9 @@ These require hands-on interaction with the newly built Release menu-bar app:
 - Test notification submission and whether macOS/Focus presents the banner.
 - First-run setup guide layout, Retry, Open ChatGPT, Settings access, and automatic transition after first usable reading.
 - Visual layout, wrapping, keyboard access, and light/dark menu-bar legibility.
-- Premium theme gallery and all Midnight, Paper, and Aurora sample states; selected and Pro labels; Preview and Close keyboard access; text clipping and contrast.
+- Six-theme gallery and all four current reference-led Pro sample states; selected and Pro labels; Preview and Close keyboard access; text clipping and contrast in the actual Settings window.
+- History opt-in, storage error, Clear History confirmation, actual-duration window labels, chart segmentation, and session freshness in the running app.
+- Complete popup flow: open usage, enter history preview, interact with selector/chart/scroll background, Back or Escape to usage, outside-click dismiss, and reopen on usage. Confirm only one UsageGrid process remains.
 - Confirm Release refuses to activate a premium theme from an edited saved preference. Purchasing remains unavailable by design.
 - The Release app's panel-triggered refresh was not invoked by automation because `osascript` lacks Accessibility permission. The same bundled executable and request contract passed the privacy-redacted live probe above.
 
@@ -85,5 +92,6 @@ Perform these against the exact Release path listed above and update each item t
 - **NOT TESTED — Alerts:** verify the toggle before permission, after Allow, after Deny, and after returning from System Settings; confirm no repeated permission prompt.
 - **NOT TESTED — Test notification:** with permission granted, submit a test while automatic alerts are off and confirm the explicitly labelled notification or record the macOS/Focus suppression setting.
 - **NOT TESTED — Setup guide:** inspect the panel and Settings guide, actionable error states, wrapping, keyboard access, and transition to the normal usage panel.
-- **NOT TESTED — Theme previews:** inspect Midnight, Paper, and Aurora in normal, stale, unavailable, and error sample states; confirm sample labelling, Pro/selected labels, contrast, clipping, keyboard access, and Close behavior.
+- **NOT TESTED — Theme previews in app:** inspect 90s Retro, Anime, Zen Forest, and Space in the actual Settings sheet; confirm sample labelling, Pro/selected labels, keyboard focus order, enlarged text, and Close behavior. Exported boards were inspected separately and passed for clipping/readability.
+- **NOT TESTED — History UI:** inspect recording opt-in copy, Clear History confirmation, all chart empty/single/gap states, primary/secondary labels, storage-error copy, and sample-preview isolation in the running app.
 - **NOT TESTED — Free/Pro boundary:** confirm Programming remains selectable and persistent, Preview never changes the active theme or live usage, and the Release app cannot permanently activate a premium theme without verified entitlement.

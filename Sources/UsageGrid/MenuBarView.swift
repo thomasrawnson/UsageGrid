@@ -8,11 +8,55 @@ struct MenuBarView: View {
     @Bindable var codex: CodexRefreshCoordinator
     @Bindable var alerts: UsageAlertController
     @Bindable var themePreferences: ThemePreferences
+    @Bindable var history: UsageHistoryController
     @State private var selectedProvider: SelectedProvider = .codex
+    @State private var presentation = PopupPresentationState()
 
     private var palette: UsageThemePalette { UsageThemePalette(theme: themePreferences.activeTheme, colorScheme: colorScheme) }
 
     var body: some View {
+        Group {
+            switch presentation.page {
+            case .usage:
+                ViewThatFits(in: .vertical) {
+                    usagePanel
+                    ScrollView {
+                        usagePanel
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                }
+            case .historyPreview:
+                UsageHistoryPreviewContent(theme: themePreferences.activeTheme, closeTitle: "Back to usage") {
+                    presentation.showUsage()
+                }
+            }
+        }
+        .frame(width: 350)
+        .frame(maxHeight: maximumPopupHeight, alignment: .top)
+        .background {
+            ZStack {
+                palette.canvas
+                ThemeDecorationView(theme: themePreferences.activeTheme, palette: palette)
+            }
+        }
+        .onAppear {
+            presentation.showUsage()
+            codex.successfulRefreshHandler = { windows, observedAt in
+                Task { await alerts.evaluate(windows: windows, isFresh: true) }
+                Task { await history.record(windows: windows, observedAt: observedAt) }
+            }
+            Task { await history.load() }
+            codex.activate()
+            refreshCodex()
+        }
+        .onDisappear { presentation.popupDismissed() }
+    }
+
+    private var maximumPopupHeight: CGFloat {
+        min(680, max(360, (NSScreen.main?.visibleFrame.height ?? 760) - 48))
+    }
+
+    private var usagePanel: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 Text("//")
@@ -86,14 +130,15 @@ struct MenuBarView: View {
                         CodexSetupStatusView(state: setupState, retry: refreshCodex)
                     } else if let codexWindows = codex.windows {
                         ForEach(codexWindows, id: \.id) { window in
-                            CodexWindowRow(window: window, accent: palette.accent, remainingCell: palette.remainingCell, syntax: palette.syntax, primaryText: palette.primaryText, secondaryText: palette.secondaryText, resetTextColor: palette.resetText)
+                            CodexWindowRow(window: window, palette: palette)
                         }
                     }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(palette.surface, in: RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border, lineWidth: 1))
+                .background(palette.surface, in: RoundedRectangle(cornerRadius: palette.cardRadius))
+                .overlay(RoundedRectangle(cornerRadius: palette.cardRadius).stroke(palette.border, lineWidth: 1))
+                .shadow(color: palette.usesGlow ? palette.accent.opacity(0.22) : .clear, radius: 7)
             } else {
                 HStack(spacing: 6) {
                     Text("#")
@@ -120,11 +165,26 @@ struct MenuBarView: View {
                 .font(.system(.callout, design: .monospaced))
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(palette.surface, in: RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border, lineWidth: 1))
+                .background(palette.surface, in: RoundedRectangle(cornerRadius: palette.cardRadius))
+                .overlay(RoundedRectangle(cornerRadius: palette.cardRadius).stroke(palette.border, lineWidth: 1))
             }
 
             Divider()
+
+            if selectedProvider == .codex {
+                VStack(alignment: .leading, spacing: 5) {
+                    if ThemeAccess.production.canViewUsageHistory {
+                        UsageSessionChangeView(change: history.session.change, isFresh: !codex.isStale && !codex.refreshFailed, isRecording: history.isRecording)
+                    } else {
+                        Text(history.isRecording ? "History recording on · viewing planned for Pro" : "History recording off")
+                            .font(.caption)
+                    }
+                    Button("Preview usage history") { presentation.showHistoryPreview() }
+                        .foregroundStyle(palette.accent)
+                }
+                .foregroundStyle(palette.secondaryText)
+                .buttonStyle(.plain)
+            }
 
             HStack {
                 Button("Settings") {
@@ -142,15 +202,7 @@ struct MenuBarView: View {
             .padding(.horizontal, 4)
         }
         .padding(14)
-        .frame(width: 350)
-        .background(palette.canvas)
-        .onAppear {
-            codex.successfulRefreshHandler = { windows, _ in
-                Task { await alerts.evaluate(windows: windows, isFresh: true) }
-            }
-            codex.activate()
-            refreshCodex()
-        }
+        .fontDesign(palette.fontDesign)
     }
 
     private func refreshCodex() {
@@ -187,6 +239,18 @@ struct MenuBarView: View {
 private enum SelectedProvider {
     case codex
     case claude
+}
+
+enum PopupPage {
+    case usage
+    case historyPreview
+}
+
+struct PopupPresentationState {
+    private(set) var page: PopupPage = .usage
+    mutating func showHistoryPreview() { page = .historyPreview }
+    mutating func showUsage() { page = .usage }
+    mutating func popupDismissed() { page = .usage }
 }
 
 struct CodexRefreshState {
@@ -304,12 +368,7 @@ final class CodexRefreshCoordinator {
 
 struct CodexWindowRow: View {
     let window: CodexUsageWindow
-    let accent: Color
-    let remainingCell: Color
-    let syntax: Color
-    let primaryText: Color
-    let secondaryText: Color
-    let resetTextColor: Color
+    let palette: UsageThemePalette
 
     private var usedCells: Int {
         min(100, max(0, Int(window.usedPercentage.rounded())))
@@ -319,18 +378,16 @@ struct CodexWindowRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Text("#")
-                    .foregroundStyle(syntax)
+                    .foregroundStyle(palette.syntax)
                     .accessibilityHidden(true)
                 Text(window.label)
             }
             .font(.system(.caption, design: .monospaced))
-            .foregroundStyle(secondaryText)
+            .foregroundStyle(palette.secondaryText)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 3), count: 20), spacing: 3) {
                 ForEach(0..<100, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(index < usedCells ? accent : remainingCell)
-                        .aspectRatio(1, contentMode: .fit)
+                    usageCell(filled: index < usedCells)
                 }
             }
             .accessibilityElement(children: .ignore)
@@ -339,20 +396,36 @@ struct CodexWindowRow: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("const")
-                    .foregroundStyle(syntax)
+                    .foregroundStyle(palette.syntax)
                 Text("used")
-                    .foregroundStyle(secondaryText)
+                    .foregroundStyle(palette.secondaryText)
                 (Text(window.usedPercentage, format: .number.precision(.fractionLength(0))) + Text("%"))
                     .fontWeight(.semibold)
-                    .foregroundStyle(primaryText)
+                    .foregroundStyle(palette.primaryText)
                 Spacer(minLength: 4)
                 Text(window.resetText)
-                    .foregroundStyle(resetTextColor)
+                    .foregroundStyle(palette.resetText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
             .font(.system(.caption, design: .monospaced))
             .monospacedDigit()
+        }
+        .fontDesign(palette.fontDesign)
+    }
+
+    @ViewBuilder
+    private func usageCell(filled: Bool) -> some View {
+        let color = filled ? palette.accent : palette.remainingCell
+        switch palette.cellShape {
+        case .square:
+            Rectangle().fill(color).aspectRatio(1, contentMode: .fit)
+                .shadow(color: filled && palette.usesGlow ? palette.accent.opacity(0.45) : .clear, radius: 2)
+        case .roundedSquare:
+            RoundedRectangle(cornerRadius: 2).fill(color).aspectRatio(1, contentMode: .fit)
+        case .circle:
+            Circle().fill(color).aspectRatio(1, contentMode: .fit)
+                .shadow(color: filled && palette.usesGlow ? palette.accent.opacity(0.55) : .clear, radius: 3)
         }
     }
 }

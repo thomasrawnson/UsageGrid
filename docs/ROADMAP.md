@@ -12,13 +12,13 @@ Read UsageGrid-Product-Specification.md first. Complete one slice at a time. Est
 | S1 | Native shell and deterministic demo | S0 platform decision | 1–2 days | Menu bar/expand behavior works on Mac |
 | S2A | Reliable real Codex meter, Free | S0, S1 | 2–3 days | Accurate live data, no invented values |
 | S2B | Reliable real Claude Code meter, Free | S0, S1 | 2–4 days | Accurate live data and independent provider switching |
-| S3 | Shared design system and eight themes | S1; integrate S2 | 2–4 days | Visual acceptance and accessibility |
+| S3 | Shared design system and six current themes | S1; integrate S2 | 2–4 days | Visual acceptance and accessibility |
 | S4 | Local history, forecasts and alerts | S2, S3 | 2–4 days | Deterministic calculations and dedupe |
 | S5 | Pro purchase and entitlement | S3, owner commercial choices | 2–4 days | Verified purchase/recovery/offline cases |
 | S6 | Hardening, beta feedback and release | S2–S5 | 2–4 days plus beta | Signed tested build and owner release approval |
 | S7 | Optional deeper metrics and additional providers | Independent source approval, S6 | Spike first | Supported integration or defer |
 
-S2 means both S2A and S2B in dependencies below. Private beta can begin after S3 with demo Pro entitlements in non-release builds; no charging until S5/S6. Paid 1.0 targets all eight themes. Both Codex and Claude Code must work in Free before the planned two-provider beta/launch. An internal Codex-only prototype is allowed but is not completion of that release requirement.
+S2 means both S2A and S2B in dependencies below. Private beta can begin after S3 with demo Pro entitlements in non-release builds; no charging until S5/S6. The current catalogue contains six themes; the Christmas and Halloween concepts are deferred for later consideration. Both Codex and Claude Code must work in Free before the planned two-provider beta/launch. An internal Codex-only prototype is allowed but is not completion of that release requirement.
 
 ## S0 — Prove the data path
 
@@ -89,11 +89,11 @@ Gate: both-provider Free MVP. If Claude quota access cannot be supported legitim
 
 ## S3 — Theme-led experience
 
-Tasks: reusable visual tokens; theme gallery with previews/locks; all six Pro themes; compact/expanded layout polish; accessible semantic colors; licensed type/art; screenshot regression fixtures.
+Tasks: reusable visual tokens; theme gallery with previews/locks; four current Pro themes; compact/expanded layout polish; accessible semantic colors; licensed type/art; screenshot regression fixtures. Preserve the Christmas and Halloween source references as deferred concepts, not current catalogue entries.
 
 Acceptance:
 
-- All eight themes match the source-reference character while sharing component order and behavior.
+- All six current themes match the source-reference character while sharing component order and behavior.
 - At 62%, every theme lights the same 62 cells. Changing theme never changes source/window/data.
 - Theme choice persists; locked preview cancels cleanly; invalid stored theme falls back safely.
 - No phone/chat controls from screenshots are copied. No misleading “time to limit / until reset” combination remains.

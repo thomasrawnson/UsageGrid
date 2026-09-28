@@ -51,14 +51,8 @@ private struct ThemeGalleryCard: View {
                 }
             }
 
-            HStack(spacing: 4) {
-                RoundedRectangle(cornerRadius: 3).fill(palette.canvas)
-                RoundedRectangle(cornerRadius: 3).fill(palette.surface)
-                RoundedRectangle(cornerRadius: 3).fill(palette.accent)
-                RoundedRectangle(cornerRadius: 3).fill(palette.syntax)
-            }
-            .frame(height: 24)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border))
+            ThemeMiniPreview(theme: theme, palette: palette)
+                .frame(height: 42)
             .accessibilityHidden(true)
 
             if theme.isPremium {
@@ -92,21 +86,23 @@ struct ProThemePreviewSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(selectedTheme.name) Preview")
-                        .font(.headline)
-                    Text("Sample data — not live usage")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    previewHeading
+                    Spacer()
+                    Button("Close") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
                 }
-                Spacer()
-                Button("Close") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                VStack(alignment: .leading, spacing: 8) {
+                    previewHeading
+                    Button("Close") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding()
 
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))], spacing: 7) {
                 ForEach(UsageTheme.all.filter(\.isPremium)) { theme in
                     Button(theme.name) { selectedTheme = theme }
                         .buttonStyle(.bordered)
@@ -119,17 +115,31 @@ struct ProThemePreviewSheet: View {
 
             ScrollView {
                 VStack(spacing: 12) {
-                    ThemeSampleCard(state: .normal, palette: palette)
-                    ThemeSampleCard(state: .stale, palette: palette)
-                    ThemeSampleCard(state: .unavailable, palette: palette)
-                    ThemeSampleCard(state: .error, palette: palette)
+                    ThemeSampleCard(theme: selectedTheme, state: .normal, palette: palette)
+                    ThemeSampleCard(theme: selectedTheme, state: .stale, palette: palette)
+                    ThemeSampleCard(theme: selectedTheme, state: .unavailable, palette: palette)
+                    ThemeSampleCard(theme: selectedTheme, state: .error, palette: palette)
                 }
                 .padding([.horizontal, .bottom])
             }
         }
-        .frame(width: 500, height: 640)
-        .background(palette.canvas)
+        .frame(minWidth: 440, idealWidth: 500, maxWidth: 600,
+               minHeight: 420, idealHeight: 620, maxHeight: 720)
+        .background {
+            ZStack {
+                palette.canvas
+                ThemeDecorationView(theme: selectedTheme, palette: palette)
+            }
+        }
         .foregroundStyle(palette.primaryText)
+    }
+
+    private var previewHeading: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(selectedTheme.name) Preview").font(.headline)
+            Text("Sample data — not live usage")
+                .font(.caption).foregroundStyle(palette.secondaryText)
+        }
     }
 }
 
@@ -150,6 +160,7 @@ enum ThemePreviewState: String, CaseIterable {
 }
 
 struct ThemeSampleCard: View {
+    let theme: UsageTheme
     let state: ThemePreviewState
     let palette: UsageThemePalette
 
@@ -167,12 +178,7 @@ struct ThemeSampleCard: View {
             if state == .normal || state == .stale {
                 CodexWindowRow(
                     window: sampleWindow,
-                    accent: palette.accent,
-                    remainingCell: palette.remainingCell,
-                    syntax: palette.syntax,
-                    primaryText: palette.primaryText,
-                    secondaryText: palette.secondaryText,
-                    resetTextColor: palette.resetText
+                    palette: palette
                 )
             } else {
                 Text(state == .unavailable ? "No sample usage window available" : "Sample request failed · Retry")
@@ -182,8 +188,15 @@ struct ThemeSampleCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(palette.surface, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.border))
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: palette.cardRadius).fill(palette.surface)
+                ThemeDecorationView(theme: theme, palette: palette).clipShape(RoundedRectangle(cornerRadius: palette.cardRadius))
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: palette.cardRadius).stroke(palette.border, lineWidth: theme.id == .retro ? 2 : 1))
+        .shadow(color: palette.usesGlow ? palette.accent.opacity(0.24) : .black.opacity(theme.id == .professional ? 0.10 : 0), radius: palette.usesGlow ? 7 : 3, y: 2)
+        .fontDesign(palette.fontDesign)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sample \(state.title.lowercased()) usage state")
     }
@@ -200,5 +213,72 @@ struct ThemeSampleCard: View {
         case .error:
             Label("Sample · Connection error", systemImage: "xmark.octagon.fill").foregroundStyle(palette.error)
         }
+    }
+}
+
+private struct ThemeMiniPreview: View {
+    let theme: UsageTheme
+    let palette: UsageThemePalette
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: min(8, palette.cardRadius)).fill(palette.canvas)
+            ThemeDecorationView(theme: theme, palette: palette)
+                .clipShape(RoundedRectangle(cornerRadius: min(8, palette.cardRadius)))
+            HStack(spacing: 3) {
+                ForEach(0..<10, id: \.self) { index in
+                    miniCell(filled: index < 6)
+                }
+            }
+            .padding(.horizontal, 8)
+        }
+        .overlay(RoundedRectangle(cornerRadius: min(8, palette.cardRadius)).stroke(palette.border))
+    }
+
+    @ViewBuilder
+    private func miniCell(filled: Bool) -> some View {
+        let color = filled ? palette.accent : palette.remainingCell
+        switch palette.cellShape {
+        case .square: Rectangle().fill(color).aspectRatio(1, contentMode: .fit)
+        case .roundedSquare: RoundedRectangle(cornerRadius: 2).fill(color).aspectRatio(1, contentMode: .fit)
+        case .circle: Circle().fill(color).aspectRatio(1, contentMode: .fit)
+        }
+    }
+}
+
+struct ThemeExportPreview: View {
+    let theme: UsageTheme
+    let palette: UsageThemePalette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(theme.name).font(.system(.title, design: palette.fontDesign).weight(.bold))
+                    Text("UsageGrid theme preview · SAMPLE DATA")
+                        .font(.caption)
+                        .foregroundStyle(palette.secondaryText)
+                }
+                Spacer()
+                Text(theme.isPremium ? "PRO PREVIEW" : "FREE")
+                    .font(.caption.weight(.bold))
+                    .padding(.horizontal, 9).padding(.vertical, 5)
+                    .background(palette.selectedTab, in: Capsule())
+            }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+                ForEach(ThemePreviewState.allCases, id: \.rawValue) { state in
+                    ThemeSampleCard(theme: theme, state: state, palette: palette)
+                }
+            }
+        }
+        .padding(22)
+        .frame(width: 940, height: 650, alignment: .topLeading)
+        .background {
+            ZStack {
+                palette.canvas
+                ThemeDecorationView(theme: theme, palette: palette)
+            }
+        }
+        .foregroundStyle(palette.primaryText)
     }
 }

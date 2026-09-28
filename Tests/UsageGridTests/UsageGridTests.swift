@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import Darwin
 import SwiftUI
+import AppKit
 @testable import UsageGrid
 
 actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
@@ -53,33 +54,69 @@ actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
     enum TestDeliveryError: Error { case failed }
 }
 
+actor TestHistoryStore: UsageHistoryPersisting {
+    var stored: [UsageHistorySample]
+    var generation = 0
+    var failLoad = false
+    var failSave = false
+    var failClear = false
+
+    init(stored: [UsageHistorySample] = []) { self.stored = stored }
+    func load(now: Date) async throws -> [UsageHistorySample] {
+        if failLoad { throw TestError.failed }
+        return UsageHistoryMath.retained(stored, now: now)
+    }
+    func save(_ samples: [UsageHistorySample], generation requested: Int) async throws {
+        if failSave { throw TestError.failed }
+        guard requested >= generation else { return }
+        generation = requested; stored = samples
+    }
+    func clear(generation requested: Int) async throws {
+        if failClear { throw TestError.failed }
+        generation = max(generation, requested); stored = []
+    }
+    func setFailSave(_ value: Bool) { failSave = value }
+    func snapshot() -> [UsageHistorySample] { stored }
+    enum TestError: Error { case failed }
+}
+
 @Test func appTargetLinks() {
     #expect(String(describing: UsageGridApp.self) == "UsageGridApp")
 }
 
 @Test func themeCatalogueLookupAndFallback() {
     #expect(UsageTheme.lookup("programming").id == .programming)
-    #expect(UsageTheme.lookup("midnight").id == .midnight)
-    #expect(UsageTheme.lookup("paper").id == .paper)
-    #expect(UsageTheme.lookup("aurora").id == .aurora)
+    #expect(UsageTheme.lookup("professional").id == .professional)
+    #expect(UsageTheme.lookup("retro").id == .retro)
+    #expect(UsageTheme.lookup("anime").id == .anime)
+    #expect(UsageTheme.lookup("zenForest").id == .zenForest)
+    #expect(UsageTheme.lookup("space").id == .space)
+    #expect(UsageTheme.lookup("christmas").id == .programming)
+    #expect(UsageTheme.lookup("halloween").id == .programming)
+    #expect(UsageTheme.lookup("midnight").id == .programming)
+    #expect(UsageTheme.lookup("paper").id == .programming)
+    #expect(UsageTheme.lookup("aurora").id == .programming)
     #expect(UsageTheme.lookup("future-theme").id == .programming)
     #expect(UsageTheme.lookup(nil).id == .programming)
-    #expect(UsageTheme.all.filter(\.isPremium).count == 3)
+    #expect(UsageTheme.all.filter(\.isPremium).count == 4)
 }
 
 @Test func productionThemeAccessRejectsPremiumSavedValuesAndSelection() throws {
     let suiteName = "UsageGridTests.Themes.Free.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
-    defaults.set(UsageThemeID.midnight.rawValue, forKey: ThemePreferences.activeThemeKey)
+    defaults.set(UsageThemeID.retro.rawValue, forKey: ThemePreferences.activeThemeKey)
 
     let preferences = ThemePreferences(defaults: defaults, access: .production)
 
     #expect(!ThemeAccess.production.hasProEntitlement)
     #expect(preferences.activeTheme.id == .programming)
-    #expect(!preferences.select(UsageTheme.lookup(UsageThemeID.aurora.rawValue)))
+    #expect(!preferences.select(UsageTheme.lookup(UsageThemeID.retro.rawValue)))
     #expect(preferences.activeTheme.id == .programming)
-    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.midnight.rawValue)
+    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.retro.rawValue)
+
+    #expect(preferences.select(UsageTheme.lookup(UsageThemeID.professional.rawValue)))
+    #expect(preferences.activeTheme.id == .professional)
 }
 
 @Test func entitledThemeSelectionPersistsWhilePreviewRemainsIsolated() throws {
@@ -88,29 +125,46 @@ actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let access = ThemeAccess(hasProEntitlement: true)
     let preferences = ThemePreferences(defaults: defaults, access: access)
-    let paper = UsageTheme.lookup(UsageThemeID.paper.rawValue)
+    let space = UsageTheme.lookup(UsageThemeID.space.rawValue)
 
-    #expect(access.canSelect(paper))
-    #expect(preferences.select(paper))
-    #expect(preferences.activeTheme.id == .paper)
-    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.paper.rawValue)
+    #expect(access.canSelect(space))
+    #expect(preferences.select(space))
+    #expect(preferences.activeTheme.id == .space)
+    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.space.rawValue)
 
-    let previewedTheme = UsageTheme.lookup(UsageThemeID.aurora.rawValue)
+    let previewedTheme = UsageTheme.lookup(UsageThemeID.anime.rawValue)
     let previewStates = ThemePreviewState.allCases
-    #expect(previewedTheme.id == .aurora)
+    #expect(previewedTheme.id == .anime)
     #expect(previewStates == [.normal, .stale, .unavailable, .error])
-    #expect(preferences.activeTheme.id == .paper)
-    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.paper.rawValue)
+    #expect(preferences.activeTheme.id == .space)
+    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.space.rawValue)
 }
 
 @Test @MainActor func premiumThemeSampleStatesRender() {
     for theme in UsageTheme.all.filter(\.isPremium) {
         let palette = UsageThemePalette(theme: theme, colorScheme: .dark)
         for state in ThemePreviewState.allCases {
-            let renderer = ImageRenderer(content: ThemeSampleCard(state: state, palette: palette).frame(width: 460))
+            let renderer = ImageRenderer(content: ThemeSampleCard(theme: theme, state: state, palette: palette).frame(width: 460))
             renderer.proposedSize = ProposedViewSize(width: 460, height: state == .normal || state == .stale ? 190 : 90)
             #expect(renderer.cgImage != nil, "Expected \(theme.name) \(state.title) preview to render")
         }
+    }
+}
+
+@Test @MainActor func exportPremiumThemePreviewsWhenRequested() throws {
+    guard let outputPath = ProcessInfo.processInfo.environment["USAGEGRID_THEME_PREVIEW_DIR"] else { return }
+    let outputURL = URL(fileURLWithPath: outputPath, isDirectory: true)
+    try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+
+    for theme in UsageTheme.all.filter(\.isPremium) {
+        let palette = UsageThemePalette(theme: theme, colorScheme: .dark)
+        let renderer = ImageRenderer(content: ThemeExportPreview(theme: theme, palette: palette))
+        renderer.scale = 2
+        renderer.proposedSize = ProposedViewSize(width: 940, height: 650)
+        let image = try #require(renderer.cgImage)
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        try png.write(to: outputURL.appendingPathComponent("\(theme.id.rawValue)-preview.png"))
     }
 }
 
@@ -682,4 +736,209 @@ private func alertWindow(used: Double, reset: Date?) -> CodexUsageWindow {
     #expect(state.isStale)
     #expect(state.windows?.first?.usedPercentage == 42)
     #expect(state.lastUpdated == Date(timeIntervalSince1970: 1_000))
+}
+
+private func historySample(_ minute: Int, used: Double, window: UsageHistoryWindow = .primary,
+                           reset: TimeInterval = 10_000, run: UUID) -> UsageHistorySample {
+    UsageHistorySample(observedAt: Date(timeIntervalSince1970: Double(minute * 60)), window: window,
+                       durationMinutes: window == .primary ? 180 : 10_080,
+                       resetsAt: Date(timeIntervalSince1970: reset), usedPercentage: used, processRunID: run)
+}
+
+@Test @MainActor func historyOptInCollectsOnlyUsableSuccessfulWindows() async throws {
+    let suite = "UsageGridTests.History.OptIn.\(UUID())"
+    let defaults = try #require(UserDefaults(suiteName: suite)); defer { defaults.removePersistentDomain(forName: suite) }
+    let store = TestHistoryStore()
+    let now = Date(timeIntervalSince1970: 1_000)
+    let controller = UsageHistoryController(defaults: defaults, store: store, now: { now })
+    let valid = CodexUsageWindow(id: "primary", label: "3-hour", usedPercentage: 42, resetText: "later", durationMinutes: 180, resetsAt: Date(timeIntervalSince1970: 2_000))
+    let missingReset = CodexUsageWindow(id: "secondary", label: "weekly", usedPercentage: 10, resetText: "unknown", durationMinutes: 10_080)
+
+    await controller.record(windows: [valid], observedAt: now)
+    #expect(controller.samples.isEmpty)
+    controller.isRecording = true
+    await controller.record(windows: [valid, missingReset], observedAt: now)
+    #expect(controller.samples.count == 1)
+    #expect(controller.samples.first?.window == .primary)
+    #expect(defaults.bool(forKey: UsageHistoryController.recordingKey))
+}
+
+@Test func historyRetentionCapAndPersistence() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("history.json")
+    let store = UsageHistoryStore(fileURL: url)
+    let now = Date(timeIntervalSince1970: 2_000_000)
+    let run = UUID()
+    var values = (0...25_010).map { index in
+        UsageHistorySample(observedAt: now.addingTimeInterval(Double(index - 25_010)), window: .primary,
+                           durationMinutes: 180, resetsAt: now.addingTimeInterval(10_000),
+                           usedPercentage: Double(index % 101), processRunID: run)
+    }
+    values.append(UsageHistorySample(observedAt: now.addingTimeInterval(-UsageHistoryMath.retention - 1), window: .secondary,
+                                     durationMinutes: 10_080, resetsAt: now, usedPercentage: 1, processRunID: run))
+    let retained = UsageHistoryMath.retained(values, now: now)
+    #expect(retained.count == 25_000)
+    try await store.save(retained, generation: 0)
+    let loaded = try await store.load(now: now)
+    #expect(loaded.map(\.observedAt) == retained.map(\.observedAt))
+    #expect(loaded.map(\.usedPercentage) == retained.map(\.usedPercentage))
+    let document = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    let object = try #require(document["samples"] as? [[String: Any]])
+    let boundaries = try #require(document["segmentStarts"] as? [[String: Any]])
+    #expect(Set(object[0].keys) == ["observedAt", "window", "durationMinutes", "resetsAt", "usedPercentage"])
+    #expect(boundaries.allSatisfy { Set($0.keys) == ["observedAt", "window"] })
+}
+
+@Test func persistedHistoryRetainsProcessAndMissingWindowBoundaries() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = UsageHistoryStore(fileURL: directory.appendingPathComponent("history.json"))
+    let run1 = UUID(), run2 = UUID()
+    let values = [historySample(1, used: 10, run: run1), historySample(2, used: 12, run: run1), historySample(3, used: 14, run: run2)]
+    try await store.save(values, generation: 0)
+    let loaded = try await store.load(now: Date(timeIntervalSince1970: 1_000))
+    #expect(UsageHistoryMath.segments(loaded, window: .primary).map(\.samples.count) == [2, 1])
+}
+
+@Test func popupPreviewNavigationAlwaysReturnsToUsage() {
+    var state = PopupPresentationState()
+    #expect(state.page == .usage)
+    state.showHistoryPreview(); #expect(state.page == .historyPreview)
+    state.showUsage(); #expect(state.page == .usage)
+    state.showHistoryPreview(); state.popupDismissed()
+    #expect(state.page == .usage)
+}
+
+@Test @MainActor func missingWindowObservationBreaksSessionComparison() async throws {
+    let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.History.Missing.\(UUID())"))
+    let controller = UsageHistoryController(defaults: defaults, store: TestHistoryStore())
+    controller.isRecording = true
+    let reset = Date(timeIntervalSince1970: 10_000)
+    func window(_ id: String, _ used: Double) -> CodexUsageWindow {
+        CodexUsageWindow(id: id, label: id, usedPercentage: used, resetText: "later", durationMinutes: id == "primary" ? 180 : 10_080, resetsAt: reset)
+    }
+    await controller.record(windows: [window("primary", 10)], observedAt: Date(timeIntervalSince1970: 1_000))
+    await controller.record(windows: [window("secondary", 20)], observedAt: Date(timeIntervalSince1970: 1_060))
+    await controller.record(windows: [window("primary", 15)], observedAt: Date(timeIntervalSince1970: 1_120))
+    #expect(controller.session.change == nil)
+    #expect(UsageHistoryMath.segments(controller.samples, window: .primary).count == 2)
+}
+
+@Test func corruptHistoryAndWriteFailuresAreReportedWithoutLiveDataImpact() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("history.json")
+    try Data("not-json".utf8).write(to: url)
+    do { _ = try await UsageHistoryStore(fileURL: url).load(now: Date()); Issue.record("Expected corrupt file failure") }
+    catch { }
+
+    let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.History.Error.\(UUID())"))
+    let fake = TestHistoryStore(); await fake.setFailSave(true)
+    let controller = await UsageHistoryController(defaults: defaults, store: fake, now: { Date(timeIntervalSince1970: 1_000) })
+    await MainActor.run { controller.isRecording = true }
+    let window = CodexUsageWindow(id: "primary", label: "3-hour", usedPercentage: 42, resetText: "later", durationMinutes: 180, resetsAt: Date(timeIntervalSince1970: 2_000))
+    await controller.record(windows: [window], observedAt: Date(timeIntervalSince1970: 1_000))
+    #expect(await controller.samples.count == 1)
+    #expect(await controller.storageError?.contains("could not be saved") == true)
+}
+
+@Test func historySegmentationSeparatesWindowsRestartsResetsGapsAndDecreases() {
+    let run1 = UUID(), run2 = UUID()
+    let values = [
+        historySample(1, used: 10, run: run1), historySample(2, used: 12, run: run1),
+        historySample(6, used: 14, run: run1),
+        historySample(7, used: 15, run: run2),
+        historySample(8, used: 9, run: run2),
+        historySample(9, used: 11, reset: 20_000, run: run2),
+        historySample(10, used: 30, window: .secondary, run: run1)
+    ]
+    let primary = UsageHistoryMath.segments(values, window: .primary)
+    #expect(primary.map(\.samples.count) == [2, 1, 1, 1, 1])
+    #expect(UsageHistoryMath.segments(values, window: .secondary).count == 1)
+}
+
+@Test func sessionBaselineRequiresContinuousComparisonAndUsesPercentagePoints() {
+    let run = UUID(); var tracker = UsageSessionTracker()
+    tracker.observe(historySample(1, used: 20, run: run)); #expect(tracker.change == nil)
+    tracker.observe(historySample(2, used: 32, run: run))
+    #expect(tracker.change?.percentagePoints == 12)
+    #expect(tracker.change?.since == Date(timeIntervalSince1970: 60))
+    tracker.observe(historySample(6, used: 35, run: run)); #expect(tracker.change == nil)
+    tracker.observe(historySample(7, used: 30, run: run)); #expect(tracker.change == nil)
+}
+
+@Test @MainActor func disablingReenablingAndClearingResetSessionAndPreventOldWrites() async throws {
+    let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.History.Clear.\(UUID())"))
+    let store = TestHistoryStore(); let controller = UsageHistoryController(defaults: defaults, store: store)
+    controller.isRecording = true
+    let first = CodexUsageWindow(id: "primary", label: "3-hour", usedPercentage: 10, resetText: "later", durationMinutes: 180, resetsAt: Date(timeIntervalSinceNow: 3_600))
+    await controller.record(windows: [first], observedAt: Date())
+    controller.isRecording = false; controller.isRecording = true
+    #expect(controller.session.change == nil)
+    await controller.clear()
+    #expect(controller.samples.isEmpty)
+    let old = historySample(1, used: 1, run: UUID())
+    try await store.save([old], generation: 0)
+    #expect(await store.snapshot().isEmpty)
+}
+
+@Test @MainActor func historyPreviewIsIsolatedAndRendersAcrossSixThemes() {
+    #expect(!ThemeAccess.production.hasProEntitlement)
+    #expect(!ThemeAccess.production.canViewUsageHistory)
+    #expect(ThemeAccess(hasProEntitlement: true).canViewUsageHistory)
+    #expect(UsageHistoryPreviewSheet.sampleData.count == 6)
+    for theme in UsageTheme.all {
+        let palette = UsageThemePalette(theme: theme, colorScheme: .dark)
+        for samples in [UsageHistoryPreviewSheet.sampleData, Array(UsageHistoryPreviewSheet.sampleData.prefix(1)), []] {
+            let renderer = ImageRenderer(content: UsageHistoryChartView(samples: samples, selection: .primary, palette: palette, isRecording: true, storageError: nil, isSample: true).frame(width: 440))
+            #expect(renderer.cgImage != nil)
+        }
+    }
+}
+
+@Test @MainActor func exportHistoryPreviewsWhenRequested() throws {
+    guard let path = ProcessInfo.processInfo.environment["USAGEGRID_HISTORY_PREVIEW_DIR"] else { return }
+    let directory = URL(fileURLWithPath: path, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    for theme in UsageTheme.all {
+        let palette = UsageThemePalette(theme: theme, colorScheme: .dark)
+        let renderer = ImageRenderer(content: UsageHistoryExportPreview(theme: theme, palette: palette))
+        renderer.scale = 2; renderer.proposedSize = ProposedViewSize(width: 940, height: 610)
+        let image = try #require(renderer.cgImage)
+        let data = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        try data.write(to: directory.appendingPathComponent("\(theme.id.rawValue)-history-preview.png"))
+    }
+}
+
+@Test @MainActor func exportContainerLayoutChecksWhenRequested() throws {
+    guard let path = ProcessInfo.processInfo.environment["USAGEGRID_UI_FIX_PREVIEW_DIR"] else { return }
+    let directory = URL(fileURLWithPath: path, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let theme = UsageTheme.lookup("retro")
+
+    func write<V: View>(_ name: String, size: CGSize, @ViewBuilder content: () -> V) throws {
+        let renderer = ImageRenderer(content: content().frame(width: size.width, height: size.height, alignment: .top))
+        renderer.scale = 2; renderer.proposedSize = ProposedViewSize(size)
+        let image = try #require(renderer.cgImage)
+        let data = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        try data.write(to: directory.appendingPathComponent(name))
+    }
+
+    try write("history-popup-default.png", size: CGSize(width: 350, height: 500)) {
+        UsageHistoryPreviewContent(theme: theme, closeTitle: "Back to usage", close: {})
+    }
+    try write("history-popup-enlarged.png", size: CGSize(width: 350, height: 500)) {
+        UsageHistoryPreviewContent(theme: theme, closeTitle: "Back to usage", close: {})
+            .environment(\.dynamicTypeSize, .accessibility2)
+    }
+    try write("theme-sheet-small.png", size: CGSize(width: 440, height: 420)) {
+        ProThemePreviewSheet(theme: theme)
+    }
+    try write("theme-sheet-enlarged.png", size: CGSize(width: 500, height: 520)) {
+        ProThemePreviewSheet(theme: theme).environment(\.dynamicTypeSize, .accessibility2)
+    }
 }
