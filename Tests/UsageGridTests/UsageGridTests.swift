@@ -3,6 +3,7 @@ import Foundation
 import Darwin
 import SwiftUI
 import AppKit
+import UserNotifications
 @testable import UsageGrid
 
 actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
@@ -52,6 +53,12 @@ actor TestUsageAlertNotifications: UsageAlertNotificationProviding {
     }
 
     enum TestDeliveryError: Error { case failed }
+}
+
+@Test func foregroundNotificationPresentationIncludesBannerAndNotificationCentre() {
+    let options = UsageGridAppDelegate.foregroundPresentationOptions
+    #expect(options.contains(.banner))
+    #expect(options.contains(.list))
 }
 
 actor TestHistoryStore: UsageHistoryPersisting {

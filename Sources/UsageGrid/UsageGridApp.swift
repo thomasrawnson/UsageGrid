@@ -1,7 +1,25 @@
+import AppKit
 import SwiftUI
+import UserNotifications
+
+final class UsageGridAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    static let foregroundPresentationOptions: UNNotificationPresentationOptions = [.banner, .list]
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        Self.foregroundPresentationOptions
+    }
+}
 
 @main
 struct UsageGridApp: App {
+    @NSApplicationDelegateAdaptor(UsageGridAppDelegate.self) private var appDelegate
     @State private var codex = CodexRefreshCoordinator()
     @State private var menuBarPreferences = MenuBarPreferences()
     @State private var usageAlerts: UsageAlertController

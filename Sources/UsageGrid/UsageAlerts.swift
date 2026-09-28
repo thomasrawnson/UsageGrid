@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import OSLog
 import UserNotifications
 
 enum UsageAlertThreshold: Int, CaseIterable, Identifiable {
@@ -32,9 +33,12 @@ protocol UsageAlertNotificationProviding: Sendable {
 }
 
 struct SystemUsageAlertNotifications: UsageAlertNotificationProviding {
+    private static let logger = Logger(subsystem: "com.plutonightlabs.UsageGrid", category: "UsageAlerts")
+
     func permissionStatus() async -> UsageAlertPermissionStatus {
-        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-        switch status {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        Self.logger.info("Notification settings checked: authorization=\(String(describing: settings.authorizationStatus), privacy: .public), alerts=\(String(describing: settings.alertSetting), privacy: .public), centre=\(String(describing: settings.notificationCenterSetting), privacy: .public)")
+        switch settings.authorizationStatus {
         case .notDetermined: return .notDetermined
         case .authorized, .provisional, .ephemeral: return .authorized
         case .denied: return .denied
@@ -51,7 +55,19 @@ struct SystemUsageAlertNotifications: UsageAlertNotificationProviding {
         content.title = notification.title
         content.body = notification.body
         let request = UNNotificationRequest(identifier: notification.identifier, content: content, trigger: nil)
-        try await UNUserNotificationCenter.current().add(request)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            Self.logger.info("Notification request submitted successfully; kind=\(notificationKind(notification.identifier), privacy: .public)")
+        } catch {
+            Self.logger.error("Notification request submission failed; kind=\(notificationKind(notification.identifier), privacy: .public), domain=\((error as NSError).domain, privacy: .public), code=\((error as NSError).code)")
+            throw error
+        }
+    }
+
+    private func notificationKind(_ identifier: String) -> String {
+        if identifier.hasPrefix("usagegrid.test.") { return "test" }
+        if identifier.hasPrefix("usagegrid.codex.reset.") { return "reset" }
+        return "threshold"
     }
 }
 
