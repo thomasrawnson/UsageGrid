@@ -138,6 +138,8 @@ Gate: checkout ready, not automatic permission to publish or charge users.
 
 ## S6 — Beta, hardening and signed release
 
+Current preparation: the tester-facing [Beta Guide](BETA_GUIDE.md) documents the actual Codex-only Free experience, optional local data, notification semantics, privacy-safe diagnostics, separate internal Debug Pro checks, and a bug-report template. External testing remains blocked until a Developer ID signed and notarised artifact has passed clean installation and first-launch checks; the guide deliberately provides no Gatekeeper bypass.
+
 Tasks: recruit 5–10 consenting beta users; run installation/reconnection and sleep/wake checks; fix critical issues; performance measurement; code signing/notarization; release notes; support/privacy pages; recovery/update checklist. Publishing requires owner approval.
 
 Acceptance:

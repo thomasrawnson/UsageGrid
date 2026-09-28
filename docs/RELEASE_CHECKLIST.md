@@ -4,6 +4,13 @@ Last verified: 28 September 2026
 
 This record covers the Release artifacts built during UG-R07. Earlier Debug checks are supporting history only.
 
+## Current readiness summary
+
+- **PASS — UG-C07 owner review:** the user confirmed that UG-C07 looks good. This is confirmation of the reviewed presentation only; it does not establish VoiceOver coverage, every keyboard path, exact clipboard behavior, or other checks still listed as NOT TESTED.
+- **PASS — Beta documentation:** the tester-facing [Beta Guide](BETA_GUIDE.md) reflects the current Codex-only Free feature set, keeps internal Debug Pro checks separate, and does not describe ad hoc artifacts as externally distributable.
+- **BLOCKED — External beta artifact:** no Developer ID Application identity or Development Team is configured, and notarisation has not been performed.
+- **NOT TESTED — Signed installation:** installation, Gatekeeper acceptance, first launch, menu-bar appearance, and first Codex connection must be tested using the eventual signed and notarised artifact.
+
 ## Commands and artifacts
 
 Run from the repository root:
@@ -84,12 +91,14 @@ These require hands-on interaction with the newly built Release menu-bar app:
 - Complete popup flow: open usage, enter history preview, interact with selector/chart/scroll background, Back or Escape to usage, outside-click dismiss, and reopen on usage. Confirm only one UsageGrid process remains.
 - Confirm Release refuses to activate a premium theme from an edited saved preference. Purchasing remains unavailable by design.
 - The Release app's panel-triggered refresh was not invoked by automation because `osascript` lacks Accessibility permission. The same bundled executable and request contract passed the privacy-redacted live probe above.
+- Installation and first launch of a future Developer ID signed and notarised beta on a clean supported Mac, including menu-bar discovery, Codex connection guidance, notification permission, persistence, quit, and reopen.
 
 ## BLOCKED
 
 - External distribution signing: `security find-identity -v -p codesigning` reports zero valid identities. No valid Developer ID Application identity is available on this Mac.
 - Team signing: Release build settings resolve no `DEVELOPMENT_TEAM`; the project deliberately uses `CODE_SIGN_IDENTITY = -` for local ad hoc signing.
 - Notarisation: not attempted. It remains blocked until a valid Developer ID Application identity and Team are configured and the signed artifact is rebuilt and reverified.
+- Signed-artifact installation: blocked until signing and notarisation are complete. When a signed beta exists, follow its release-specific installation instructions and verify a clean first launch; do not distribute the current ad hoc app or direct testers around Gatekeeper.
 - Automated menu-panel inspection: blocked by missing Accessibility permission for `osascript`; this does not block manual testing.
 
 The current apps are locally runnable ad hoc builds with Hardened Runtime enabled. They are not Developer ID signed or notarised and must not be presented as ready for external distribution.
