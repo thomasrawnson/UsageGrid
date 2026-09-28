@@ -30,6 +30,7 @@ The Release app launched for UG-R07 was:
 
 - `swift test`: 54 tests passed. Focused coverage includes stable screen-bounded popup sizing across loading/success states, Debug simulation off/on, shared theme/history access, access removal during premium history, safe premium-theme fallback without deleting the saved choice, process-local simulation reset, history isolation, and rendering the combined live/history panel across all six themes at default and constrained heights.
 - UG-C04 focused alert/permission/access filter: 19 tests passed, covering independent thresholds, missing secondary data, per-window and restart deduplication, primary-state migration, Pro loss during permission lookup, and permission-refresh preference isolation. Notification delivery was injected; no real alert was sent.
+- UG-C05 focused alert/access filter: 27 tests passed, including confirmed rollover, baseline and restart behavior, early metadata changes, percentage decreases, missing metadata, duration changes, stale gaps, independent windows, disable/re-enable, Pro loss, permission races, denied permission, delivery failure, and independent threshold/reset receipts. Notification delivery and observation times were injected; no real alert was sent.
 - Xcode arm64 Debug build completed successfully.
 - Xcode arm64 Release build completed successfully.
 - The configured generic macOS archive workflow completed successfully.
@@ -55,6 +56,7 @@ The Release app launched for UG-R07 was:
 - The vertical `ViewThatFits` root was removed after it regressed native `MenuBarExtra` size negotiation. The root now has a deterministic 350-point width and screen-bounded 160–640-point height, with a fixed header and one scrolling body. Native-host interaction remains NOT TESTED because the automation service cannot attach to this menu-bar-only app.
 - Application logging is limited to refresh stages, failure categories, and window counts. Codex stderr is discarded; credentials, account identifiers, environment contents, and raw usage payloads are not logged.
 - Usage alerts preserve the existing Free primary preference and receipt keys. Effective Pro access adds an off-by-default secondary toggle, independent threshold, window-labelled notification copy, separate reset receipt, and access recheck after asynchronous permission lookup. Missing secondary data does not affect primary delivery.
+- Pro reset notifications are independently off by default for primary and secondary windows. They use only successful fresh readings, establish a process-local baseline without catch-up, require a passed prior reset plus a later same-duration reset timestamp, and persist separate per-window delivery receipts. No reset-time scheduling or extra refresh process was added.
 
 ## FAIL
 
@@ -70,6 +72,7 @@ These require hands-on interaction with the newly built Release menu-bar app:
 - A retained stale reading followed by successful recovery.
 - Usage Alerts toggle for not-requested, granted, and denied notification permission states.
 - Pro secondary alert toggle, independent thresholds, missing-window status, separate reset-window deduplication, Pro-loss behavior, and preference retention using Debug simulation.
+- Pro primary/secondary reset toggles, baseline-only first reading, no notification for early metadata changes, and fresh confirmed-rollover copy using Debug simulation.
 - Test notification submission and whether macOS/Focus presents the banner.
 - First-run setup guide layout, Retry, Open ChatGPT, Settings access, and automatic transition after first usable reading.
 - Visual layout, wrapping, keyboard access, and light/dark menu-bar legibility.
@@ -98,6 +101,7 @@ Perform these against the exact Release path listed above and update each item t
 - **NOT TESTED — Stale recovery:** produce a temporary request failure after a success, confirm retained data is marked stale, then Retry and confirm freshness clears.
 - **NOT TESTED — Alerts:** verify the toggle before permission, after Allow, after Deny, and after returning from System Settings; confirm no repeated permission prompt.
 - **NOT TESTED — Pro per-window alerts:** with Debug Pro simulation enabled, configure different primary and secondary thresholds, confirm actual duration labels and missing-secondary copy, then disable simulation and confirm secondary controls/delivery stop while the Free primary preference remains active.
+- **NOT TESTED — Pro reset notifications:** with Debug Pro simulation enabled, toggle primary and secondary reset notifications independently and confirm preferences persist; use injected automated coverage rather than waiting for a real rollover. Confirm the Settings explanation says delivery follows a fresh observed reset and may be later than the displayed time.
 - **NOT TESTED — Test notification:** with permission granted, submit a test while automatic alerts are off and confirm the explicitly labelled notification or record the macOS/Focus suppression setting.
 - **NOT TESTED — Setup guide:** inspect the panel and Settings guide, actionable error states, wrapping, keyboard access, and transition to the normal usage panel.
 - **NOT TESTED — Theme previews in app:** inspect 90s Retro, Anime, Zen Forest, and Space in the actual Settings sheet; confirm sample labelling, Pro/selected labels, keyboard focus order, enlarged text, and Close behavior. Exported boards were inspected separately and passed for clipping/readability.

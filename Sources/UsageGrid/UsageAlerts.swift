@@ -63,6 +63,10 @@ final class UsageAlertPreferences {
     static let secondaryEnabledKey = "usageAlertsSecondaryEnabled"
     static let secondaryThresholdKey = "usageAlertsSecondaryThreshold"
     static let lastAlertedSecondaryWindowKey = "usageAlertsLastSecondaryResetWindow"
+    static let primaryResetEnabledKey = "usageAlertsPrimaryResetEnabled"
+    static let secondaryResetEnabledKey = "usageAlertsSecondaryResetEnabled"
+    static let lastPrimaryResetNotificationKey = "usageAlertsLastPrimaryResetNotification"
+    static let lastSecondaryResetNotificationKey = "usageAlertsLastSecondaryResetNotification"
 
     private let defaults: UserDefaults
 
@@ -90,6 +94,22 @@ final class UsageAlertPreferences {
         didSet { defaults.set(lastAlertedSecondaryWindow, forKey: Self.lastAlertedSecondaryWindowKey) }
     }
 
+    var primaryResetEnabled: Bool {
+        didSet { defaults.set(primaryResetEnabled, forKey: Self.primaryResetEnabledKey) }
+    }
+
+    var secondaryResetEnabled: Bool {
+        didSet { defaults.set(secondaryResetEnabled, forKey: Self.secondaryResetEnabledKey) }
+    }
+
+    var lastPrimaryResetNotification: String? {
+        didSet { defaults.set(lastPrimaryResetNotification, forKey: Self.lastPrimaryResetNotificationKey) }
+    }
+
+    var lastSecondaryResetNotification: String? {
+        didSet { defaults.set(lastSecondaryResetNotification, forKey: Self.lastSecondaryResetNotificationKey) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         enabled = defaults.bool(forKey: Self.enabledKey)
@@ -98,6 +118,10 @@ final class UsageAlertPreferences {
         secondaryEnabled = defaults.bool(forKey: Self.secondaryEnabledKey)
         secondaryThreshold = UsageAlertThreshold(rawValue: defaults.integer(forKey: Self.secondaryThresholdKey)) ?? .ninety
         lastAlertedSecondaryWindow = defaults.string(forKey: Self.lastAlertedSecondaryWindowKey)
+        primaryResetEnabled = defaults.bool(forKey: Self.primaryResetEnabledKey)
+        secondaryResetEnabled = defaults.bool(forKey: Self.secondaryResetEnabledKey)
+        lastPrimaryResetNotification = defaults.string(forKey: Self.lastPrimaryResetNotificationKey)
+        lastSecondaryResetNotification = defaults.string(forKey: Self.lastSecondaryResetNotificationKey)
     }
 }
 
@@ -116,6 +140,7 @@ final class UsageAlertController {
     @ObservationIgnored private var testCooldownTask: Task<Void, Never>?
     @ObservationIgnored private var permissionRefreshRevision = 0
     @ObservationIgnored private var userActionRevision = 0
+    @ObservationIgnored private var resetBaselines: [AlertWindow: ResetBaseline] = [:]
 
     init(
         preferences: UsageAlertPreferences = UsageAlertPreferences(),
@@ -129,9 +154,9 @@ final class UsageAlertController {
 
     var permissionMessage: String {
         switch permissionStatus {
-        case .authorized: (preferences.enabled || (hasEffectiveProAccess() && preferences.secondaryEnabled)) ? "Alerts active for enabled usage windows." : "Notifications allowed; usage alerts are off."
+        case .authorized: hasAnyEnabledAlert ? "Alerts active for enabled usage windows." : "Notifications allowed; usage alerts are off."
         case .denied: "Notifications are denied. Enable them for UsageGrid in System Settings."
-        case .notDetermined: preferences.enabled ? "Checking notification permission…" : "Permission will be requested only when alerts are enabled."
+        case .notDetermined: hasAnyEnabledAlert ? "Checking notification permission…" : "Permission will be requested only when alerts are enabled."
         case .unavailable: "Notification permission is unavailable."
         }
     }
@@ -156,6 +181,14 @@ final class UsageAlertController {
 
     func setSecondaryEnabled(_ enabled: Bool) async {
         await setEnabled(enabled, for: .secondary)
+    }
+
+    func setPrimaryResetEnabled(_ enabled: Bool) async {
+        await setResetEnabled(enabled, for: .primary)
+    }
+
+    func setSecondaryResetEnabled(_ enabled: Bool) async {
+        await setResetEnabled(enabled, for: .secondary)
     }
 
     private func setEnabled(_ enabled: Bool, for window: AlertWindow) async {
@@ -198,6 +231,45 @@ final class UsageAlertController {
         }
     }
 
+    private func setResetEnabled(_ enabled: Bool, for window: AlertWindow) async {
+        userActionRevision += 1
+        let actionRevision = userActionRevision
+        deliveryError = nil
+        resetBaselines[window] = nil
+        guard enabled else {
+            setResetPreference(false, for: window)
+            return
+        }
+        guard hasEffectiveProAccess() else { return }
+
+        let status = await notifications.permissionStatus()
+        guard actionRevision == userActionRevision, hasEffectiveProAccess() else { return }
+        switch status {
+        case .authorized:
+            permissionStatus = .authorized
+            setResetPreference(true, for: window)
+        case .denied:
+            permissionStatus = .denied
+            setResetPreference(false, for: window)
+        case .unavailable:
+            permissionStatus = .unavailable
+            setResetPreference(false, for: window)
+        case .notDetermined:
+            do {
+                let granted = try await notifications.requestPermission()
+                guard actionRevision == userActionRevision, hasEffectiveProAccess() else { return }
+                permissionStatus = granted ? .authorized : .denied
+                setResetPreference(granted, for: window)
+            } catch {
+                let currentStatus = await notifications.permissionStatus()
+                guard actionRevision == userActionRevision else { return }
+                permissionStatus = currentStatus
+                setResetPreference(false, for: window)
+                deliveryError = "Couldn’t request notification permission."
+            }
+        }
+    }
+
     @discardableResult
     func sendTestNotification(cooldown: Duration = .seconds(2)) async -> Bool {
         guard !isSendingTestNotification, !isTestNotificationCoolingDown else { return false }
@@ -232,7 +304,7 @@ final class UsageAlertController {
     }
 
     @discardableResult
-    func evaluate(windows: [CodexUsageWindow]?, isFresh: Bool) async -> Bool {
+    func evaluate(windows: [CodexUsageWindow]?, isFresh: Bool, observedAt: Date = Date()) async -> Bool {
         guard isFresh, let windows else { return false }
         var delivered = false
         if preferences.enabled, let primary = windows.first(where: { $0.id == AlertWindow.primary.rawValue }) {
@@ -241,6 +313,12 @@ final class UsageAlertController {
         if hasEffectiveProAccess(), preferences.secondaryEnabled,
            let secondary = windows.first(where: { $0.id == AlertWindow.secondary.rawValue }) {
             delivered = await evaluate(secondary, as: .secondary) || delivered
+        }
+        if hasEffectiveProAccess() {
+            delivered = await evaluateReset(windows.first(where: { $0.id == AlertWindow.primary.rawValue }), as: .primary, observedAt: observedAt) || delivered
+            delivered = await evaluateReset(windows.first(where: { $0.id == AlertWindow.secondary.rawValue }), as: .secondary, observedAt: observedAt) || delivered
+        } else {
+            resetBaselines.removeAll()
         }
         return delivered
     }
@@ -295,6 +373,55 @@ final class UsageAlertController {
         }
     }
 
+    private func evaluateReset(_ usage: CodexUsageWindow?, as window: AlertWindow, observedAt: Date) async -> Bool {
+        guard isResetEnabled(window) else {
+            resetBaselines[window] = nil
+            return false
+        }
+        guard let usage, usage.durationMinutes > 0, let resetsAt = usage.resetsAt, resetsAt > observedAt else {
+            resetBaselines[window] = nil
+            return false
+        }
+
+        let nextBaseline = ResetBaseline(durationMinutes: usage.durationMinutes, resetsAt: resetsAt)
+        guard let previous = resetBaselines[window] else {
+            resetBaselines[window] = nextBaseline
+            return false
+        }
+        guard previous.durationMinutes == usage.durationMinutes else {
+            resetBaselines[window] = nextBaseline
+            return false
+        }
+        guard resetsAt > previous.resetsAt else { return false }
+        resetBaselines[window] = nextBaseline
+        guard observedAt >= previous.resetsAt else { return false }
+
+        let receipt = "\(window.rawValue):\(usage.durationMinutes):\(Int64(resetsAt.timeIntervalSince1970.rounded()))"
+        guard resetReceipt(for: window) != receipt else { return false }
+        let actionRevision = userActionRevision
+        let currentPermission = await notifications.permissionStatus()
+        if actionRevision == userActionRevision { permissionStatus = currentPermission }
+        guard currentPermission == .authorized,
+              hasEffectiveProAccess(), isResetEnabled(window) else { return false }
+
+        let used = min(100, max(0, Int(usage.usedPercentage.rounded())))
+        let remaining = 100 - used
+        let notification = UsageAlertNotification(
+            identifier: "usagegrid.codex.reset.\(receipt)",
+            title: "Codex usage window reset",
+            body: "Codex \(window.title) window (\(usage.label)) reset was observed with \(remaining)% remaining."
+        )
+        setResetReceipt(receipt, for: window)
+        deliveryError = nil
+        do {
+            try await notifications.deliver(notification)
+            return true
+        } catch {
+            deliveryError = "Couldn’t deliver the \(window.title.lowercased()) reset notification."
+            return false
+        }
+    }
+
     private func isEnabled(_ window: AlertWindow) -> Bool {
         window == .primary ? preferences.enabled : preferences.secondaryEnabled
     }
@@ -304,7 +431,34 @@ final class UsageAlertController {
         else { preferences.secondaryEnabled = enabled }
     }
 
-    private enum AlertWindow: String {
+    private var hasAnyEnabledAlert: Bool {
+        preferences.enabled || (hasEffectiveProAccess() && (preferences.secondaryEnabled || preferences.primaryResetEnabled || preferences.secondaryResetEnabled))
+    }
+
+    private func isResetEnabled(_ window: AlertWindow) -> Bool {
+        window == .primary ? preferences.primaryResetEnabled : preferences.secondaryResetEnabled
+    }
+
+    private func setResetPreference(_ enabled: Bool, for window: AlertWindow) {
+        if window == .primary { preferences.primaryResetEnabled = enabled }
+        else { preferences.secondaryResetEnabled = enabled }
+    }
+
+    private func resetReceipt(for window: AlertWindow) -> String? {
+        window == .primary ? preferences.lastPrimaryResetNotification : preferences.lastSecondaryResetNotification
+    }
+
+    private func setResetReceipt(_ receipt: String, for window: AlertWindow) {
+        if window == .primary { preferences.lastPrimaryResetNotification = receipt }
+        else { preferences.lastSecondaryResetNotification = receipt }
+    }
+
+    private struct ResetBaseline {
+        let durationMinutes: Int
+        let resetsAt: Date
+    }
+
+    private enum AlertWindow: String, Hashable {
         case primary, secondary
         var title: String { rawValue.capitalized }
     }

@@ -45,7 +45,7 @@ struct MenuBarView: View {
         .onAppear {
             presentation.showUsage()
             codex.successfulRefreshHandler = { windows, observedAt in
-                Task { await alerts.evaluate(windows: windows, isFresh: true) }
+                Task { await alerts.evaluate(windows: windows, isFresh: true, observedAt: observedAt) }
                 Task { await history.record(windows: windows, observedAt: observedAt) }
             }
             Task { await history.load() }

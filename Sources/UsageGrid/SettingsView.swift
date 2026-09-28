@@ -77,7 +77,7 @@ struct SettingsView: View {
             Section("UsageGrid Pro") {
                 Text("Everything currently available in UsageGrid remains Free, including live Codex usage, refresh recovery, menu-bar display, alerts, and the Programming theme.")
                     .fixedSize(horizontal: false, vertical: true)
-                Text("The planned Pro offering adds 90s Retro, Anime, Zen Forest, Space, real usage-history viewing, and independent secondary-window usage alerts.")
+                Text("The planned Pro offering adds 90s Retro, Anime, Zen Forest, Space, real usage-history viewing, independent secondary-window usage alerts, and confirmed reset notifications.")
                     .fixedSize(horizontal: false, vertical: true)
                 Text("One-off purchase planned. Purchasing is not available yet.")
                     .font(.caption)
@@ -151,6 +151,12 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(!alerts.preferences.enabled)
+                    if proAccess.effectiveAccess.canUseResetAlerts {
+                        Toggle("Notify when window resets", isOn: Binding(
+                            get: { alerts.preferences.primaryResetEnabled },
+                            set: { enabled in Task { await alerts.setPrimaryResetEnabled(enabled) } }
+                        ))
+                    }
                 }
 
                 if proAccess.effectiveAccess.canUseSecondaryAlerts {
@@ -174,6 +180,10 @@ struct SettingsView: View {
                             }
                         }
                         .disabled(!alerts.preferences.secondaryEnabled)
+                        Toggle("Notify when window resets", isOn: Binding(
+                            get: { alerts.preferences.secondaryResetEnabled },
+                            set: { enabled in Task { await alerts.setSecondaryResetEnabled(enabled) } }
+                        ))
                     }
                 } else {
                     Text("Independent secondary-window alerts are planned for UsageGrid Pro. Purchasing is not available yet.")
@@ -183,6 +193,16 @@ struct SettingsView: View {
                 Text("Each threshold means percentage used, regardless of the menu-bar display preference.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if proAccess.effectiveAccess.canUseResetAlerts {
+                    Text("Reset alerts arrive only after UsageGrid observes a confirmed rollover while running, which may be later than the displayed reset time.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Confirmed primary and secondary reset notifications are planned for UsageGrid Pro.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 Text(alerts.permissionMessage)
                     .font(.caption)
