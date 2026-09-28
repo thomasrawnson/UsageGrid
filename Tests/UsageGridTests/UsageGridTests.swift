@@ -6,6 +6,204 @@ import AppKit
 import UserNotifications
 @testable import UsageGrid
 
+private final class TestProLicenseStorage: ProLicenseCredentialStoring, @unchecked Sendable {
+    var credential: ProLicenseCredential?
+    var failSave = false
+    var failLoad = false
+    var saveCount = 0
+
+    init(credential: ProLicenseCredential? = nil) { self.credential = credential }
+    func load() throws -> ProLicenseCredential? {
+        if failLoad { throw TestError.failed }
+        return credential
+    }
+    func save(_ credential: ProLicenseCredential) throws {
+        saveCount += 1
+        if failSave { throw TestError.failed }
+        self.credential = credential
+    }
+    func delete() throws { credential = nil }
+    enum TestError: Error { case failed }
+}
+
+private actor TestProLicenseService: ProLicenseServicing {
+    enum Result: Sendable {
+        case success(ProLicenseVerification, Duration?)
+        case failure(String)
+    }
+
+    var activationResults: [Result]
+    var validationResult: Result
+    var activationCount = 0
+
+    init(activationResults: [Result], validationResult: Result? = nil) {
+        self.activationResults = activationResults
+        self.validationResult = validationResult ?? activationResults.first ?? .failure("unconfigured")
+    }
+
+    func activate(licenseKey: String) async throws -> ProLicenseVerification {
+        let index = min(activationCount, max(0, activationResults.count - 1))
+        activationCount += 1
+        return try await resolve(activationResults[index])
+    }
+
+    func validate(credential: ProLicenseCredential) async throws -> ProLicenseVerification {
+        try await resolve(validationResult)
+    }
+
+    func deactivate(credential: ProLicenseCredential) async throws {}
+
+    func count() -> Int { activationCount }
+
+    private func resolve(_ result: Result) async throws -> ProLicenseVerification {
+        switch result {
+        case .success(let verification, let delay):
+            if let delay { try? await Task.sleep(for: delay) }
+            return verification
+        case .failure(let sensitiveMessage):
+            throw Failure(message: sensitiveMessage)
+        }
+    }
+
+    struct Failure: Error { let message: String }
+}
+
+private let testLicenseIdentity = ProLicenseIdentity(storeID: "test-store", productID: "usagegrid-pro-test")
+private let testLicenseCredential = ProLicenseCredential(licenseKey: "TEST-SECRET-LICENCE", activationID: "test-activation")
+private var testLicenseVerification: ProLicenseVerification {
+    ProLicenseVerification(credential: testLicenseCredential, identity: testLicenseIdentity)
+}
+
+@Test @MainActor func productionLicenceFoundationRemainsUnavailableAndUnentitled() {
+    let controller = ProLicenseController.productionFoundation()
+    #expect(controller.state == .unavailable)
+    #expect(!controller.hasVerifiedEntitlement)
+    #expect(!controller.activate(licenseKey: "ANY-KEY"))
+    #expect(ThemeAccess.production.hasProEntitlement == false)
+}
+
+@Test @MainActor func licenceActivationViewRendersWithIsolatedFoundation() {
+    let controller = ProLicenseController.productionFoundation()
+    let renderer = ImageRenderer(content: ProLicenseActivationView(controller: controller))
+    renderer.proposedSize = ProposedViewSize(width: 420, height: 260)
+    #expect(renderer.cgImage != nil)
+    #expect(controller.state == .unavailable)
+    #expect(!controller.hasVerifiedEntitlement)
+}
+
+@Test @MainActor func storedLicenceRequiresSuccessfulRemoteVerification() async {
+    let storage = TestProLicenseStorage(credential: testLicenseCredential)
+    let service = TestProLicenseService(
+        activationResults: [.failure("unused")],
+        validationResult: .failure("SECRET backend response")
+    )
+    let controller = ProLicenseController(service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true)
+
+    #expect(!controller.hasVerifiedEntitlement)
+    await controller.validateStoredCredential()
+    #expect(controller.state == .failed(.validationFailed))
+    #expect(!controller.hasVerifiedEntitlement)
+}
+
+@Test @MainActor func injectedLicenceActivationHandlesSuccessFailureAndDuplicateSubmission() async {
+    let delayedService = TestProLicenseService(activationResults: [.success(testLicenseVerification, .milliseconds(80))])
+    let storage = TestProLicenseStorage()
+    let controller = ProLicenseController(service: delayedService, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true)
+
+    #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
+    #expect(!controller.activate(licenseKey: "SECOND-KEY"))
+    await controller.waitForOperation()
+    #expect(controller.state == .verifiedActive)
+    #expect(controller.hasVerifiedEntitlement)
+    #expect(await delayedService.count() == 1)
+    #expect(storage.saveCount == 1)
+
+    let failed = ProLicenseController(
+        service: TestProLicenseService(activationResults: [.failure("key=PRIVATE-LICENCE")]),
+        storage: TestProLicenseStorage(), expectedIdentity: testLicenseIdentity, activationAvailable: true
+    )
+    #expect(failed.activate(licenseKey: "PRIVATE-LICENCE"))
+    await failed.waitForOperation()
+    #expect(failed.state == .failed(.activationRejected))
+    #expect(!failed.hasVerifiedEntitlement)
+}
+
+@Test @MainActor func cancelledLicenceCompletionCannotOverrideANewerActivation() async {
+    let oldVerification = ProLicenseVerification(
+        credential: ProLicenseCredential(licenseKey: "OLD-SECRET", activationID: "old"),
+        identity: ProLicenseIdentity(storeID: "wrong", productID: "wrong")
+    )
+    let service = TestProLicenseService(activationResults: [
+        .success(oldVerification, .milliseconds(100)),
+        .success(testLicenseVerification, nil)
+    ])
+    let storage = TestProLicenseStorage()
+    let controller = ProLicenseController(service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true)
+
+    #expect(controller.activate(licenseKey: "OLD-SECRET"))
+    controller.cancelPendingOperation()
+    #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
+    await controller.waitForOperation()
+    try? await Task.sleep(for: .milliseconds(120))
+    #expect(controller.state == .verifiedActive)
+    #expect(storage.credential == testLicenseCredential)
+}
+
+@Test @MainActor func licenceStorageFailureDoesNotGrantAccess() async {
+    let storage = TestProLicenseStorage()
+    storage.failSave = true
+    let controller = ProLicenseController(
+        service: TestProLicenseService(activationResults: [.success(testLicenseVerification, nil)]),
+        storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true
+    )
+    #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
+    await controller.waitForOperation()
+    #expect(controller.state == .failed(.storageFailed))
+    #expect(!controller.hasVerifiedEntitlement)
+}
+
+@Test @MainActor func licenceProductAndStoreIdentityMustMatchBeforeAccess() async {
+    let mismatched = ProLicenseVerification(
+        credential: testLicenseCredential,
+        identity: ProLicenseIdentity(storeID: "another-store", productID: "another-product")
+    )
+    let storage = TestProLicenseStorage()
+    let controller = ProLicenseController(
+        service: TestProLicenseService(activationResults: [.success(mismatched, nil)]),
+        storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true
+    )
+    #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
+    await controller.waitForOperation()
+    #expect(controller.state == .failed(.productMismatch))
+    #expect(!controller.hasVerifiedEntitlement)
+    #expect(storage.credential == nil)
+}
+
+@Test @MainActor func licenceErrorsAndDiagnosticsCannotLeakLicenceValues() async {
+    let secret = "LS-VERY-SECRET-LICENCE"
+    let controller = ProLicenseController(
+        service: TestProLicenseService(activationResults: [.failure("Rejected \(secret) for customer@example.com")]),
+        storage: TestProLicenseStorage(), expectedIdentity: testLicenseIdentity, activationAvailable: true
+    )
+    #expect(controller.activate(licenseKey: secret))
+    await controller.waitForOperation()
+    guard case .failed(let failure) = controller.state else {
+        Issue.record("Expected a safe activation failure")
+        return
+    }
+    #expect(!failure.userMessage.contains(secret))
+    #expect(!failure.userMessage.contains("customer@example.com"))
+
+    let diagnostics = SupportDiagnosticsReport.make(input: SupportDiagnosticsInput(
+        appVersion: nil, appBuild: nil, macOSVersion: nil, architecture: nil,
+        isRefreshing: false, hasReading: false, isStale: false, lastSuccessfulRefresh: nil,
+        lastError: nil, unsafeErrorDetail: secret, executableSource: nil, notificationSettings: nil,
+        historyRecordingEnabled: false, historyHasStorageError: false,
+        hasProAccess: false, isDebugSimulation: false
+    ))
+    #expect(!diagnostics.contains(secret))
+}
+
 @Test func supportDiagnosticsUsesOnlyAllowlistedSafeFields() {
     let now = Date(timeIntervalSince1970: 2_000_000_000)
     let sentinel = "SECRET user@example.com /Users/private token=abc123"

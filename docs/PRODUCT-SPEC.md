@@ -26,7 +26,7 @@ Out of scope for 1.0: Windows/Linux, mobile/watch app, cloud sync, team dashboar
 
 ## 2. Commercial model
 
-Planning price: £14.99 one-time Pro; optional £9.99 launch offer. No recurring subscription in 1.0. Prices are product proposals, not validated willingness-to-pay findings. Do not enable charges before the owner approves the checkout/distribution provider and final terms.
+UsageGrid Pro is planned as a one-off purchase through Lemon Squeezy for a directly distributed Developer ID signed and notarised Mac app. Checkout will be hosted and activation will use a licence key; the initial implementation will not require a separate UsageGrid account. Price and currency are not yet decided. Do not enable charges before the owner approves the final commercial terms and live configuration.
 
 | Capability | Free | Pro |
 | --- | --- | --- |
@@ -45,6 +45,8 @@ All six paid themes form one Pro bundle; no separate seasonal payment in 1.0. Pr
 Pro grants permanent use of purchased features, not a guarantee that external providers will maintain compatibility forever. Publish precise update/support terms before selling; do not promise every future provider or cloud service for life. No ads, tracking-based monetization, or recurring upsell modal.
 
 Entitlements must be centralized, not scattered UI booleans. Implement a replaceable EntitlementService with free, pro, checking, and verification-error states. Persist verifiable purchase evidence securely; never ship a hard-coded unlock key or trust a preferences flag. Previously verified purchases must have a documented offline policy. Purchase cancellation/failure leaves existing rights unchanged. Revocation falls back to a free theme without deleting history. Export/delete of a user's already-collected data remains available after entitlement loss.
+
+The planned flow is purchase → receive licence key → activate → verify UsageGrid store/product identity → unlock Pro. Store only the necessary licence key and activation identifier in the macOS Keychain. A stored credential must still be validated before granting access. Deactivation supports later device transfer, subject to a permitted-Mac policy that is not yet decided. Offline grace duration and future major-version/update entitlement are also undecided. Never embed merchant API secrets or include licence keys, activation identifiers, or purchase details in logs or support diagnostics. See [PRO_LICENSING.md](PRO_LICENSING.md).
 
 ## 3. Data truth and integration gates
 
@@ -173,4 +175,4 @@ Release requires owner approval for distribution/payment choice, signing credent
 
 Private beta: recruit 5–10 volunteer Mac/Codex users; seek a first real reading in under three minutes for already-configured users; record whether values agree with the provider at comparable times; verify users understand used vs remaining and reset vs forecast. Collect feedback manually or opt-in, not through default analytics. Review repeat use and theme purchase interest before widening scope.
 
-Owner decisions before sales: £14.99/launch discount confirmation; purchase provider; offline licensing policy; support/update promise; minimum macOS version after spike. Technical decisions before real integration: supported installed Codex and Claude Code versions/accounts, distribution constraints and actual capability matrix. Both free integrations are required for launch; unverified Claude access is a launch blocker, not permission to remove it from Free.
+Owner decisions before sales: final price/currency; permitted Mac count; offline validation/grace policy; future major-version/update entitlement; support terms; and live Lemon Squeezy product/store configuration. Technical decisions before real integration: supported installed Codex and Claude Code versions/accounts, distribution constraints and actual capability matrix. Both free integrations are required for launch; unverified Claude access is a launch blocker, not permission to remove it from Free.

@@ -10,7 +10,7 @@ The Swift package remains for command-line `swift build` and `swift test` with t
 
 ## Release / Beta Build
 
-See the [Beta Guide](docs/BETA_GUIDE.md) for the tester-facing product walkthrough and checklist. The [Release Checklist](docs/RELEASE_CHECKLIST.md) records verified artifacts, automated evidence, signing blockers, and remaining release checks.
+See the [Beta Guide](docs/BETA_GUIDE.md) for the tester-facing product walkthrough and checklist. The [Release Checklist](docs/RELEASE_CHECKLIST.md) records verified artifacts, automated evidence, signing blockers, and remaining release checks. The planned Lemon Squeezy licensing lifecycle and current non-functional foundation are documented in [Pro Licensing](docs/PRO_LICENSING.md).
 
 From the repository root, with Xcode 27 selected:
 
@@ -69,7 +69,9 @@ The current visual mapping is: Programming → `IMG_7529.PNG`, Professional → 
 
 Theme typography keeps expressive faces in headings and decorative presentation while usage percentages, reset copy, chart axes, timestamps, and session-change values use stable, legible numerals. This preserves each reference-led identity without allowing decorative typography to reduce the clarity of operational data.
 
-UsageGrid Pro is planned as a one-off purchase, but purchasing is not available yet. Production builds remain Free: a saved premium theme identifier is not treated as proof of purchase, and premium themes cannot become the active theme without a future verified entitlement. Legacy Midnight, Paper, Aurora, Christmas, and Halloween saved IDs fall back to Programming. There are no Buy, Restore Purchases, licence, subscription, or payment controls in this slice. Codex remains the only live usage integration; previews do not imply Claude support.
+UsageGrid Pro is planned as a one-off purchase through Lemon Squeezy hosted checkout and licence-key activation for the directly distributed signed/notarised app. Price/currency, permitted Mac count, update entitlement, and offline grace policy remain undecided. Purchasing and production activation are not available yet. Production builds remain Free: a saved premium theme identifier or stored credential is not proof of purchase, and premium features require future authoritative validation of the configured UsageGrid store/product identity. The activation preview is isolated and disabled; it makes no network request. Legacy Midnight, Paper, Aurora, Christmas, and Halloween saved IDs fall back to Programming. Codex remains the only live usage integration; previews do not imply Claude support.
+
+The licensing foundation defines activation, validation, deactivation, safe lifecycle states, and a macOS Keychain boundary using stable UsageGrid identifiers. It is not connected to live Pro feature checks in P01. Licence keys and activation identifiers must never enter logs or Support diagnostics, and tests use injected memory storage rather than the real Keychain. Debug Pro simulation remains separately labelled and cannot establish a purchased entitlement.
 
 Debug builds contain a clearly labelled **Settings → Developer testing → Simulate Pro access** toggle. It is off at every launch and exists only in memory: it is not written to UserDefaults, read from an environment variable or command-line argument, and is not a purchase or production entitlement. While active, Settings and the popup show **Developer Pro simulation**; 90s Retro, Anime, Zen Forest, and Space can be applied to live usage and real recorded history. Turning it off immediately restores Free presentation. A saved premium selection is retained but Programming is used as the safe fallback until effective Pro access returns. The Release configuration compiles out the toggle and simulation-enabling state.
 

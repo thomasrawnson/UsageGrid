@@ -248,9 +248,9 @@ Done: allow/deny/off scenarios tested on Mac, no first-run permission interrupti
 
 ### T26 — Choose the commercial route
 
-Prepare one recommendation for distribution/payment provider, one-time price, supported offline verification, recovery/refund handling and update/support terms. Verify current vendor capabilities when selecting. Show the exact proposed decision to Tom before account setup or live sales.
+Record the selected distribution/payment direction, unresolved commercial policies, supported offline verification, recovery/refund handling and update/support terms. Verify current vendor capabilities before integration. Show the exact proposed live configuration to Tom before account setup or sales.
 
-Done: recorded owner decision sufficient to implement one verified route. Planning baseline is £14.99 one-time, optional £9.99 launch; neither is a live offer. Do not build multiple payment adapters or a bespoke account server. Context: specification §§2,8; T04.
+Current decision: direct signed/notarised distribution with a one-off UsageGrid Pro purchase through Lemon Squeezy hosted checkout and licence-key activation, without a separate UsageGrid account initially. Price/currency, permitted Mac count, major-version/update entitlement and offline grace duration remain undecided. Do not build multiple payment adapters or a bespoke account server. Context: specification §§2,8; `docs/PRO_LICENSING.md`.
 
 ### T27 — Verify entitlements
 

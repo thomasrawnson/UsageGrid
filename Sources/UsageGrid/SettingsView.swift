@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var errorMessage: String?
     @State private var previewTheme: UsageTheme?
     @State private var showingHistoryPreview = false
+    @State private var showingLicenseActivation = false
     @State private var confirmingHistoryClear = false
 
     private var versionText: String {
@@ -52,6 +53,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showingHistoryPreview) {
             UsageHistoryPreviewSheet(theme: themePreferences.activeTheme)
+        }
+        .sheet(isPresented: $showingLicenseActivation) {
+            ProLicenseActivationSheet()
         }
         .confirmationDialog("Clear all recorded usage history?", isPresented: $confirmingHistoryClear) {
             Button("Clear History", role: .destructive) { Task { await history.clear() } }
@@ -144,6 +148,9 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 Button("Preview themes") {
                     previewTheme = UsageTheme.lookup(UsageThemeID.retro.rawValue)
+                }
+                Button("Preview licence activation") {
+                    showingLicenseActivation = true
                 }
             }
         }

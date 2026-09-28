@@ -121,9 +121,15 @@ Gate: useful Pro behavior without billing. Beta feedback must confirm prediction
 
 Current commercial-foundation UI: Settings is organised into native General, Appearance, Usage & History, Alerts, and Help tabs. A single compact comparison reflects the implemented boundary: live Codex usage, menu-bar display, Programming/Professional themes, the primary threshold alert, and privacy-safe support diagnostics remain Free; premium themes, real history/session views, the secondary threshold alert, and confirmed reset notifications require effective Pro access. Local history recording remains explicit opt-in. Debug simulation is clearly separate from a future verified purchase, and production access remains unchanged. Purchasing is not yet available. Support diagnostics use an explicit field allowlist and fixed error categories; they never expose raw provider errors, paths, identifiers, usage values, history samples, or credentials.
 
-Owner gate: approve seller identity, final price, payment/distribution service, license/offline policy and support terms. Do not proceed with live commercial setup without those choices.
+Agreed direction: direct distribution of a signed/notarised app, a one-off UsageGrid Pro purchase through Lemon Squeezy hosted checkout, licence-key activation, and no separate UsageGrid account initially. Price/currency, permitted Mac count, major-version/update entitlement, and offline validation/grace duration remain undecided. See [PRO_LICENSING.md](PRO_LICENSING.md).
 
-Tasks: one-time purchase adapter; centralized verified entitlement; purchase/recovery UI; offline verification policy; release/debug separation; clear privacy and upgrade copy. Use vendor-managed checkout/licensing where suitable rather than building a bespoke account server.
+Implementation stages:
+
+- **UG-P01:** licensing model, Keychain storage boundary, isolated disabled production activation UI, and injected lifecycle tests.
+- **UG-P02:** Lemon Squeezy test-mode integration and activation/validation/deactivation lifecycle verification.
+- **UG-P03:** live configuration and signed-artifact purchase testing after commercial policy decisions.
+
+Tasks: centralized verified entitlement; hosted purchase/recovery UI; approved offline verification policy; release/debug separation; clear privacy and upgrade copy. Use Lemon Squeezy’s client-safe licensing flow without building a bespoke UsageGrid account server or embedding merchant API secrets.
 
 Acceptance:
 
