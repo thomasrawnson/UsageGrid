@@ -111,7 +111,7 @@ Acceptance:
 - Records are partitioned by account/provider/bucket/window; switching account cannot leak or mix history.
 - Forecast tests cover 12 percentage points/hour example, flat data, insufficient samples, reset before limit, reset changes, decreases, stale data and collection gaps.
 - Forecast copy states estimated; reset countdown remains a separate fact.
-- Alerts request permission only on opt-in and fire once per crossed threshold per reset cycle, including restart and multi-threshold jump cases.
+- Alerts request permission only on opt-in and fire once per crossed threshold per reset cycle, including restart and multi-threshold jump cases. The existing primary alert remains Free; effective Pro access adds an independently configured secondary-window alert with separate persisted receipts.
 - No quota alert from demo, stale data or a first-sample catch-up burst.
 - Retention, migration, export and confirmed delete work; no fabricated historical sessions appear.
 

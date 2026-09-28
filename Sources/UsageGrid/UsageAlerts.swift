@@ -60,6 +60,9 @@ final class UsageAlertPreferences {
     static let enabledKey = "usageAlertsEnabled"
     static let thresholdKey = "usageAlertsThreshold"
     static let lastAlertedWindowKey = "usageAlertsLastPrimaryResetWindow"
+    static let secondaryEnabledKey = "usageAlertsSecondaryEnabled"
+    static let secondaryThresholdKey = "usageAlertsSecondaryThreshold"
+    static let lastAlertedSecondaryWindowKey = "usageAlertsLastSecondaryResetWindow"
 
     private let defaults: UserDefaults
 
@@ -75,11 +78,26 @@ final class UsageAlertPreferences {
         didSet { defaults.set(lastAlertedWindow, forKey: Self.lastAlertedWindowKey) }
     }
 
+    var secondaryEnabled: Bool {
+        didSet { defaults.set(secondaryEnabled, forKey: Self.secondaryEnabledKey) }
+    }
+
+    var secondaryThreshold: UsageAlertThreshold {
+        didSet { defaults.set(secondaryThreshold.rawValue, forKey: Self.secondaryThresholdKey) }
+    }
+
+    var lastAlertedSecondaryWindow: String? {
+        didSet { defaults.set(lastAlertedSecondaryWindow, forKey: Self.lastAlertedSecondaryWindowKey) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         enabled = defaults.bool(forKey: Self.enabledKey)
         threshold = UsageAlertThreshold(rawValue: defaults.integer(forKey: Self.thresholdKey)) ?? .ninety
         lastAlertedWindow = defaults.string(forKey: Self.lastAlertedWindowKey)
+        secondaryEnabled = defaults.bool(forKey: Self.secondaryEnabledKey)
+        secondaryThreshold = UsageAlertThreshold(rawValue: defaults.integer(forKey: Self.secondaryThresholdKey)) ?? .ninety
+        lastAlertedSecondaryWindow = defaults.string(forKey: Self.lastAlertedSecondaryWindowKey)
     }
 }
 
@@ -88,6 +106,7 @@ final class UsageAlertPreferences {
 final class UsageAlertController {
     let preferences: UsageAlertPreferences
     private let notifications: any UsageAlertNotificationProviding
+    private let hasEffectiveProAccess: @MainActor () -> Bool
 
     private(set) var permissionStatus: UsageAlertPermissionStatus = .notDetermined
     private(set) var deliveryError: String?
@@ -100,15 +119,17 @@ final class UsageAlertController {
 
     init(
         preferences: UsageAlertPreferences = UsageAlertPreferences(),
-        notifications: any UsageAlertNotificationProviding = SystemUsageAlertNotifications()
+        notifications: any UsageAlertNotificationProviding = SystemUsageAlertNotifications(),
+        hasEffectiveProAccess: @escaping @MainActor () -> Bool = { false }
     ) {
         self.preferences = preferences
         self.notifications = notifications
+        self.hasEffectiveProAccess = hasEffectiveProAccess
     }
 
     var permissionMessage: String {
         switch permissionStatus {
-        case .authorized: preferences.enabled ? "Alerts active for the primary window." : "Notifications allowed; usage alerts are off."
+        case .authorized: (preferences.enabled || (hasEffectiveProAccess() && preferences.secondaryEnabled)) ? "Alerts active for enabled usage windows." : "Notifications allowed; usage alerts are off."
         case .denied: "Notifications are denied. Enable them for UsageGrid in System Settings."
         case .notDetermined: preferences.enabled ? "Checking notification permission…" : "Permission will be requested only when alerts are enabled."
         case .unavailable: "Notification permission is unavailable."
@@ -130,37 +151,48 @@ final class UsageAlertController {
     }
 
     func setEnabled(_ enabled: Bool) async {
+        await setEnabled(enabled, for: .primary)
+    }
+
+    func setSecondaryEnabled(_ enabled: Bool) async {
+        await setEnabled(enabled, for: .secondary)
+    }
+
+    private func setEnabled(_ enabled: Bool, for window: AlertWindow) async {
         userActionRevision += 1
         let actionRevision = userActionRevision
         deliveryError = nil
         guard enabled else {
-            preferences.enabled = false
+            setPreference(false, for: window)
             return
         }
+        guard window != .secondary || hasEffectiveProAccess() else { return }
 
         let status = await notifications.permissionStatus()
         guard actionRevision == userActionRevision else { return }
+        guard window != .secondary || hasEffectiveProAccess() else { return }
         switch status {
         case .authorized:
             permissionStatus = .authorized
-            preferences.enabled = true
+            setPreference(true, for: window)
         case .denied:
             permissionStatus = .denied
-            preferences.enabled = false
+            setPreference(false, for: window)
         case .unavailable:
             permissionStatus = .unavailable
-            preferences.enabled = false
+            setPreference(false, for: window)
         case .notDetermined:
             do {
                 let granted = try await notifications.requestPermission()
                 guard actionRevision == userActionRevision else { return }
+                guard window != .secondary || hasEffectiveProAccess() else { return }
                 permissionStatus = granted ? .authorized : .denied
-                preferences.enabled = granted
+                setPreference(granted, for: window)
             } catch {
                 let currentStatus = await notifications.permissionStatus()
                 guard actionRevision == userActionRevision else { return }
                 permissionStatus = currentStatus
-                preferences.enabled = false
+                setPreference(false, for: window)
                 deliveryError = "Couldn’t request notification permission."
             }
         }
@@ -201,38 +233,16 @@ final class UsageAlertController {
 
     @discardableResult
     func evaluate(windows: [CodexUsageWindow]?, isFresh: Bool) async -> Bool {
-        guard preferences.enabled, isFresh,
-              let primary = windows?.first(where: { $0.id == "primary" }),
-              primary.usedPercentage >= Double(preferences.threshold.rawValue),
-              let resetsAt = primary.resetsAt else { return false }
-
-        let windowKey = "primary:\(primary.durationMinutes):\(Int64(resetsAt.timeIntervalSince1970.rounded()))"
-        guard preferences.lastAlertedWindow != windowKey else { return false }
-        let actionRevision = userActionRevision
-        let currentPermission = await notifications.permissionStatus()
-        guard currentPermission == .authorized else {
-            if actionRevision == userActionRevision { permissionStatus = currentPermission }
-            return false
+        guard isFresh, let windows else { return false }
+        var delivered = false
+        if preferences.enabled, let primary = windows.first(where: { $0.id == AlertWindow.primary.rawValue }) {
+            delivered = await evaluate(primary, as: .primary) || delivered
         }
-
-        let used = min(100, max(0, Int(primary.usedPercentage.rounded())))
-        let remaining = 100 - used
-        let resetDescription = resetsAt.formatted(date: .abbreviated, time: .shortened)
-        let notification = UsageAlertNotification(
-            identifier: "usagegrid.codex.primary.\(windowKey)",
-            title: "Codex usage limit approaching",
-            body: "Codex \(primary.label) is \(used)% used, \(remaining)% remaining. Resets \(resetDescription)."
-        )
-
-        preferences.lastAlertedWindow = windowKey
-        deliveryError = nil
-        do {
-            try await notifications.deliver(notification)
-            return true
-        } catch {
-            deliveryError = "Couldn’t deliver the usage alert."
-            return false
+        if hasEffectiveProAccess(), preferences.secondaryEnabled,
+           let secondary = windows.first(where: { $0.id == AlertWindow.secondary.rawValue }) {
+            delivered = await evaluate(secondary, as: .secondary) || delivered
         }
+        return delivered
     }
 
     func openNotificationSettings() {
@@ -248,5 +258,54 @@ final class UsageAlertController {
             guard !Task.isCancelled else { return }
             self?.isTestNotificationCoolingDown = false
         }
+    }
+
+    private func evaluate(_ usage: CodexUsageWindow, as window: AlertWindow) async -> Bool {
+        let threshold = window == .primary ? preferences.threshold : preferences.secondaryThreshold
+        guard usage.usedPercentage >= Double(threshold.rawValue), let resetsAt = usage.resetsAt else { return false }
+        let windowKey = "\(window.rawValue):\(usage.durationMinutes):\(Int64(resetsAt.timeIntervalSince1970.rounded()))"
+        let priorReceipt = window == .primary ? preferences.lastAlertedWindow : preferences.lastAlertedSecondaryWindow
+        guard priorReceipt != windowKey else { return false }
+
+        let actionRevision = userActionRevision
+        let currentPermission = await notifications.permissionStatus()
+        if actionRevision == userActionRevision { permissionStatus = currentPermission }
+        guard currentPermission == .authorized,
+              isEnabled(window),
+              window != .secondary || hasEffectiveProAccess() else { return false }
+
+        let used = min(100, max(0, Int(usage.usedPercentage.rounded())))
+        let remaining = 100 - used
+        let resetDescription = resetsAt.formatted(date: .abbreviated, time: .shortened)
+        let notification = UsageAlertNotification(
+            identifier: "usagegrid.codex.\(window.rawValue).\(windowKey)",
+            title: "Codex usage limit approaching",
+            body: "Codex \(window.title) window (\(usage.label)) is \(used)% used, \(remaining)% remaining. Resets \(resetDescription)."
+        )
+
+        if window == .primary { preferences.lastAlertedWindow = windowKey }
+        else { preferences.lastAlertedSecondaryWindow = windowKey }
+        deliveryError = nil
+        do {
+            try await notifications.deliver(notification)
+            return true
+        } catch {
+            deliveryError = "Couldn’t deliver the \(window.title.lowercased()) usage alert."
+            return false
+        }
+    }
+
+    private func isEnabled(_ window: AlertWindow) -> Bool {
+        window == .primary ? preferences.enabled : preferences.secondaryEnabled
+    }
+
+    private func setPreference(_ enabled: Bool, for window: AlertWindow) {
+        if window == .primary { preferences.enabled = enabled }
+        else { preferences.secondaryEnabled = enabled }
+    }
+
+    private enum AlertWindow: String {
+        case primary, secondary
+        var title: String { rawValue.capitalized }
     }
 }

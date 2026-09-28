@@ -29,6 +29,7 @@ The Release app launched for UG-R07 was:
 ## PASS
 
 - `swift test`: 54 tests passed. Focused coverage includes stable screen-bounded popup sizing across loading/success states, Debug simulation off/on, shared theme/history access, access removal during premium history, safe premium-theme fallback without deleting the saved choice, process-local simulation reset, history isolation, and rendering the combined live/history panel across all six themes at default and constrained heights.
+- UG-C04 focused alert/permission/access filter: 19 tests passed, covering independent thresholds, missing secondary data, per-window and restart deduplication, primary-state migration, Pro loss during permission lookup, and permission-refresh preference isolation. Notification delivery was injected; no real alert was sent.
 - Xcode arm64 Debug build completed successfully.
 - Xcode arm64 Release build completed successfully.
 - The configured generic macOS archive workflow completed successfully.
@@ -53,6 +54,7 @@ The Release app launched for UG-R07 was:
 - Popup history preview navigation is now in-place, resets to live usage on dismissal, and maps Escape to Back before popup dismissal. No parent tap gesture or custom outside-click monitor exists; the removed sheet presentation was the only separate lifecycle attached to the transient `MenuBarExtra` window.
 - The vertical `ViewThatFits` root was removed after it regressed native `MenuBarExtra` size negotiation. The root now has a deterministic 350-point width and screen-bounded 160–640-point height, with a fixed header and one scrolling body. Native-host interaction remains NOT TESTED because the automation service cannot attach to this menu-bar-only app.
 - Application logging is limited to refresh stages, failure categories, and window counts. Codex stderr is discarded; credentials, account identifiers, environment contents, and raw usage payloads are not logged.
+- Usage alerts preserve the existing Free primary preference and receipt keys. Effective Pro access adds an off-by-default secondary toggle, independent threshold, window-labelled notification copy, separate reset receipt, and access recheck after asynchronous permission lookup. Missing secondary data does not affect primary delivery.
 
 ## FAIL
 
@@ -67,6 +69,7 @@ These require hands-on interaction with the newly built Release menu-bar app:
 - Sleep/wake refresh and duplicate-wake coalescing.
 - A retained stale reading followed by successful recovery.
 - Usage Alerts toggle for not-requested, granted, and denied notification permission states.
+- Pro secondary alert toggle, independent thresholds, missing-window status, separate reset-window deduplication, Pro-loss behavior, and preference retention using Debug simulation.
 - Test notification submission and whether macOS/Focus presents the banner.
 - First-run setup guide layout, Retry, Open ChatGPT, Settings access, and automatic transition after first usable reading.
 - Visual layout, wrapping, keyboard access, and light/dark menu-bar legibility.
@@ -94,6 +97,7 @@ Perform these against the exact Release path listed above and update each item t
 - **NOT TESTED — Sleep/wake:** sleep and wake the Mac; confirm one coalesced refresh and no stuck loading state.
 - **NOT TESTED — Stale recovery:** produce a temporary request failure after a success, confirm retained data is marked stale, then Retry and confirm freshness clears.
 - **NOT TESTED — Alerts:** verify the toggle before permission, after Allow, after Deny, and after returning from System Settings; confirm no repeated permission prompt.
+- **NOT TESTED — Pro per-window alerts:** with Debug Pro simulation enabled, configure different primary and secondary thresholds, confirm actual duration labels and missing-secondary copy, then disable simulation and confirm secondary controls/delivery stop while the Free primary preference remains active.
 - **NOT TESTED — Test notification:** with permission granted, submit a test while automatic alerts are off and confirm the explicitly labelled notification or record the macOS/Focus suppression setting.
 - **NOT TESTED — Setup guide:** inspect the panel and Settings guide, actionable error states, wrapping, keyboard access, and transition to the normal usage panel.
 - **NOT TESTED — Theme previews in app:** inspect 90s Retro, Anime, Zen Forest, and Space in the actual Settings sheet; confirm sample labelling, Pro/selected labels, keyboard focus order, enlarged text, and Close behavior. Exported boards were inspected separately and passed for clipping/readability.

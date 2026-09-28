@@ -4,7 +4,7 @@ import SwiftUI
 struct UsageGridApp: App {
     @State private var codex = CodexRefreshCoordinator()
     @State private var menuBarPreferences = MenuBarPreferences()
-    @State private var usageAlerts = UsageAlertController()
+    @State private var usageAlerts: UsageAlertController
     @State private var proAccess: ProAccessController
     @State private var themePreferences: ThemePreferences
     @State private var usageHistory = UsageHistoryController()
@@ -13,6 +13,7 @@ struct UsageGridApp: App {
         let access = ProAccessController()
         _proAccess = State(initialValue: access)
         _themePreferences = State(initialValue: ThemePreferences(access: access))
+        _usageAlerts = State(initialValue: UsageAlertController(hasEffectiveProAccess: { access.effectiveAccess.canUseSecondaryAlerts }))
         #if DEBUG && !SWIFT_PACKAGE
         assert(Bundle.main.bundleIdentifier == "com.plutonightlabs.UsageGrid")
         #endif

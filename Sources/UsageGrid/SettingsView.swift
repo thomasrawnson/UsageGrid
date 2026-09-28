@@ -77,7 +77,7 @@ struct SettingsView: View {
             Section("UsageGrid Pro") {
                 Text("Everything currently available in UsageGrid remains Free, including live Codex usage, refresh recovery, menu-bar display, alerts, and the Programming theme.")
                     .fixedSize(horizontal: false, vertical: true)
-                Text("The planned Pro offering adds 90s Retro, Anime, Zen Forest, Space, and real usage-history viewing.")
+                Text("The planned Pro offering adds 90s Retro, Anime, Zen Forest, Space, real usage-history viewing, and independent secondary-window usage alerts.")
                     .fixedSize(horizontal: false, vertical: true)
                 Text("One-off purchase planned. Purchasing is not available yet.")
                     .font(.caption)
@@ -135,22 +135,52 @@ struct SettingsView: View {
             }
 
             Section("Usage Alerts") {
-                Toggle("Alert when primary usage reaches threshold", isOn: Binding(
-                    get: { alerts.preferences.enabled },
-                    set: { enabled in Task { await alerts.setEnabled(enabled) } }
-                ))
-
-                Picker("Threshold", selection: Binding(
-                    get: { alerts.preferences.threshold },
-                    set: { alerts.preferences.threshold = $0 }
-                )) {
-                    ForEach(UsageAlertThreshold.allCases) { threshold in
-                        Text(threshold.title).tag(threshold)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(alertWindowTitle("primary", fallback: "Primary window"))
+                        .font(.headline)
+                    Toggle("Alert when usage reaches threshold", isOn: Binding(
+                        get: { alerts.preferences.enabled },
+                        set: { enabled in Task { await alerts.setEnabled(enabled) } }
+                    ))
+                    Picker("Threshold", selection: Binding(
+                        get: { alerts.preferences.threshold },
+                        set: { alerts.preferences.threshold = $0 }
+                    )) {
+                        ForEach(UsageAlertThreshold.allCases) { threshold in
+                            Text(threshold.title).tag(threshold)
+                        }
                     }
+                    .disabled(!alerts.preferences.enabled)
                 }
-                .disabled(!alerts.preferences.enabled)
 
-                Text("Threshold is percentage used for the Codex primary window, regardless of the menu-bar display setting.")
+                if proAccess.effectiveAccess.canUseSecondaryAlerts {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(alertWindowTitle("secondary", fallback: "Secondary window"))
+                            .font(.headline)
+                        if codex.windows?.contains(where: { $0.id == "secondary" }) != true {
+                            Text("Window unavailable").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Toggle("Alert when usage reaches threshold", isOn: Binding(
+                            get: { alerts.preferences.secondaryEnabled },
+                            set: { enabled in Task { await alerts.setSecondaryEnabled(enabled) } }
+                        ))
+                        Picker("Threshold", selection: Binding(
+                            get: { alerts.preferences.secondaryThreshold },
+                            set: { alerts.preferences.secondaryThreshold = $0 }
+                        )) {
+                            ForEach(UsageAlertThreshold.allCases) { threshold in
+                                Text(threshold.title).tag(threshold)
+                            }
+                        }
+                        .disabled(!alerts.preferences.secondaryEnabled)
+                    }
+                } else {
+                    Text("Independent secondary-window alerts are planned for UsageGrid Pro. Purchasing is not available yet.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                Text("Each threshold means percentage used, regardless of the menu-bar display preference.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -221,6 +251,11 @@ struct SettingsView: View {
 
     private func refreshStatus() {
         status = SMAppService.mainApp.status
+    }
+
+    private func alertWindowTitle(_ id: String, fallback: String) -> String {
+        guard let window = codex.windows?.first(where: { $0.id == id }) else { return fallback }
+        return window.label
     }
 
     private func updateLaunchAtLogin(_ enabled: Bool) {

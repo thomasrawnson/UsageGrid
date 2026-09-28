@@ -47,6 +47,7 @@ struct ThemeAccess: Equatable {
     }
 
     var canViewUsageHistory: Bool { hasProEntitlement }
+    var canUseSecondaryAlerts: Bool { hasProEntitlement }
 }
 
 @Observable

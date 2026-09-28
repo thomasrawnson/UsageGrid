@@ -632,15 +632,104 @@ actor TestHistoryStore: UsageHistoryPersisting {
     #expect(await notifications.snapshot().deliveries.count == 1)
 }
 
-private func alertWindow(used: Double, reset: Date?) -> CodexUsageWindow {
+private func alertWindow(used: Double, reset: Date?, id: String = "primary", duration: Int = 180, label: String = "3-hour limit") -> CodexUsageWindow {
     CodexUsageWindow(
-        id: "primary",
-        label: "3-hour limit",
+        id: id,
+        label: label,
         usedPercentage: used,
         resetText: reset == nil ? "Reset unavailable" : "Resets later",
-        durationMinutes: 180,
+        durationMinutes: duration,
         resetsAt: reset
     )
+}
+
+@Test func secondaryAlertPreferencesAreAdditiveAndPrimaryStateMigratesUnchanged() throws {
+    let suite = "UsageGridTests.Alerts.Migration.\(UUID())"
+    let defaults = try #require(UserDefaults(suiteName: suite)); defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set(true, forKey: UsageAlertPreferences.enabledKey)
+    defaults.set(95, forKey: UsageAlertPreferences.thresholdKey)
+    defaults.set("primary:180:20000", forKey: UsageAlertPreferences.lastAlertedWindowKey)
+    let preferences = UsageAlertPreferences(defaults: defaults)
+    #expect(preferences.enabled)
+    #expect(preferences.threshold == .ninetyFive)
+    #expect(preferences.lastAlertedWindow == "primary:180:20000")
+    #expect(!preferences.secondaryEnabled)
+    #expect(preferences.secondaryThreshold == .ninety)
+    #expect(preferences.lastAlertedSecondaryWindow == nil)
+}
+
+@Test @MainActor func proAlertsUseIndependentThresholdsAndIdentifyWindows() async throws {
+    let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.Independent.\(UUID())"))
+    let preferences = UsageAlertPreferences(defaults: defaults)
+    preferences.enabled = true; preferences.threshold = .ninetyFive
+    preferences.secondaryEnabled = true; preferences.secondaryThreshold = .eighty
+    let notifications = TestUsageAlertNotifications(status: .authorized)
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    let reset = Date(timeIntervalSince1970: 20_000)
+    let windows = [
+        alertWindow(used: 90, reset: reset),
+        alertWindow(used: 80, reset: reset, id: "secondary", duration: 10_080, label: "Weekly limit")
+    ]
+    #expect(await controller.evaluate(windows: windows, isFresh: true))
+    let deliveries = await notifications.snapshot().deliveries
+    #expect(deliveries.count == 1)
+    #expect(deliveries[0].body.contains("Secondary window"))
+    #expect(deliveries[0].body.contains("Weekly limit"))
+    #expect(preferences.lastAlertedWindow == nil)
+    #expect(preferences.lastAlertedSecondaryWindow != nil)
+}
+
+@Test @MainActor func missingSecondaryDoesNotSuppressPrimaryAndMissingPrimaryDoesNotSuppressSecondary() async throws {
+    let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.MissingWindow.\(UUID())"))
+    let preferences = UsageAlertPreferences(defaults: defaults)
+    preferences.enabled = true; preferences.secondaryEnabled = true
+    let notifications = TestUsageAlertNotifications(status: .authorized)
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    #expect(await controller.evaluate(windows: [alertWindow(used: 91, reset: Date(timeIntervalSince1970: 20_000))], isFresh: true))
+    #expect(await controller.evaluate(windows: [alertWindow(used: 91, reset: Date(timeIntervalSince1970: 30_000), id: "secondary", duration: 10_080, label: "Weekly limit")], isFresh: true))
+    #expect(await notifications.snapshot().deliveries.count == 2)
+}
+
+@Test @MainActor func primaryAndSecondaryDeduplicateSeparatelyAcrossRestart() async throws {
+    let suite = "UsageGridTests.Alerts.SecondaryRestart.\(UUID())"
+    let defaults = try #require(UserDefaults(suiteName: suite)); defer { defaults.removePersistentDomain(forName: suite) }
+    var preferences = UsageAlertPreferences(defaults: defaults)
+    preferences.enabled = true; preferences.secondaryEnabled = true
+    let notifications = TestUsageAlertNotifications(status: .authorized)
+    let reset = Date(timeIntervalSince1970: 20_000)
+    let windows = [alertWindow(used: 92, reset: reset), alertWindow(used: 92, reset: reset, id: "secondary", duration: 10_080, label: "Weekly limit")]
+    var controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    #expect(await controller.evaluate(windows: windows, isFresh: true))
+    #expect(await notifications.snapshot().deliveries.count == 2)
+    preferences = UsageAlertPreferences(defaults: defaults)
+    controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    #expect(!(await controller.evaluate(windows: windows, isFresh: true)))
+    #expect(await notifications.snapshot().deliveries.count == 2)
+}
+
+@Test @MainActor func proLossStopsSecondaryAfterPermissionAwaitAndRetainsPreference() async throws {
+    let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.ProLoss.\(UUID())"))
+    let preferences = UsageAlertPreferences(defaults: defaults); preferences.secondaryEnabled = true
+    let notifications = TestUsageAlertNotifications(status: .authorized, permissionStatusDelays: [.milliseconds(80)])
+    let access = ProAccessController(); access.isDeveloperProSimulationEnabled = true
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { access.effectiveAccess.canUseSecondaryAlerts })
+    let secondary = alertWindow(used: 95, reset: Date(timeIntervalSince1970: 20_000), id: "secondary", duration: 10_080, label: "Weekly limit")
+    let evaluation = Task { await controller.evaluate(windows: [secondary], isFresh: true) }
+    try? await Task.sleep(for: .milliseconds(10)); access.isDeveloperProSimulationEnabled = false
+    #expect(!(await evaluation.value))
+    #expect(preferences.secondaryEnabled)
+    #expect(await notifications.snapshot().deliveries.isEmpty)
+}
+
+@Test @MainActor func permissionRefreshDoesNotEnableEitherWindowAlert() async throws {
+    let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.BothPreferenceSeparation.\(UUID())"))
+    let preferences = UsageAlertPreferences(defaults: defaults)
+    let notifications = TestUsageAlertNotifications(status: .authorized)
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    await controller.refreshPermissionStatus()
+    #expect(controller.permissionStatus == .authorized)
+    #expect(!preferences.enabled)
+    #expect(!preferences.secondaryEnabled)
 }
 
 @Test @MainActor func testNotificationDeliversWithPermissionWithoutChangingAlertState() async throws {
