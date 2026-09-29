@@ -126,7 +126,7 @@ Agreed direction: direct distribution of a signed/notarised app, a one-off Usage
 Implementation stages:
 
 - **UG-P01:** licensing model, Keychain storage boundary, isolated disabled production activation UI, and injected lifecycle tests.
-- **UG-P02:** Lemon Squeezy test-mode integration and activation/validation/deactivation lifecycle verification.
+- **UG-P02:** implemented a Debug-only Lemon Squeezy test-mode activation/validation/deactivation path with exact Store `485681`, Product `1395768`, and Variant `2179685` matching, dedicated test Keychain storage, online restart validation, and shared access integration. Release remains Free and contains no test configuration or controls.
 - **UG-P03:** live configuration and signed-artifact purchase testing after commercial policy decisions.
 
 Tasks: centralized verified entitlement; hosted purchase/recovery UI; approved offline verification policy; release/debug separation; clear privacy and upgrade copy. Use Lemon Squeezy’s client-safe licensing flow without building a bespoke UsageGrid account server or embedding merchant API secrets.
@@ -134,7 +134,7 @@ Tasks: centralized verified entitlement; hosted purchase/recovery UI; approved o
 Acceptance:
 
 - Test-mode purchase grants Pro only after valid verification; cancellation/failure never unlocks it.
-- Recovery/restore after reinstall, offline previously-verified purchase, verification outage and revocation are tested against documented policy.
+- Debug test activation, restart validation, deactivation, identity mismatch, outage and revocation behavior are covered; production reinstall recovery and offline grace remain UG-P03 policy work.
 - Free core remains usable; Pro preview never permanently unlocks a theme.
 - Non-release mock unlock paths are absent from production builds.
 - Upgrade text lists shipped Pro features only. Codex and Claude access are explicitly Free; token/session breakdown and “all future services” are not sold as guarantees.

@@ -59,6 +59,7 @@ final class ProAccessController {
 
     #if DEBUG
     var isDeveloperProSimulationEnabled = false
+    private(set) var hasVerifiedTestLicense = false
     #endif
 
     init(hasVerifiedPurchaseEntitlement: Bool = false) {
@@ -67,7 +68,7 @@ final class ProAccessController {
 
     var effectiveAccess: ThemeAccess {
         #if DEBUG
-        ThemeAccess(hasProEntitlement: hasVerifiedPurchaseEntitlement || isDeveloperProSimulationEnabled)
+        ThemeAccess(hasProEntitlement: hasVerifiedPurchaseEntitlement || isDeveloperProSimulationEnabled || hasVerifiedTestLicense)
         #else
         ThemeAccess(hasProEntitlement: hasVerifiedPurchaseEntitlement)
         #endif
@@ -75,6 +76,13 @@ final class ProAccessController {
 
     #if DEBUG
     var isDeveloperSimulationActive: Bool { isDeveloperProSimulationEnabled }
+    var activeAccessDescription: String {
+        if isDeveloperProSimulationEnabled && hasVerifiedTestLicense { return "Debug simulation + verified test licence" }
+        if isDeveloperProSimulationEnabled { return "Debug simulation" }
+        if hasVerifiedTestLicense { return "Verified Lemon Squeezy test licence" }
+        return "Free"
+    }
+    func setVerifiedTestLicense(_ verified: Bool) { hasVerifiedTestLicense = verified }
     #endif
 }
 

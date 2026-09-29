@@ -9,11 +9,13 @@ struct SettingsView: View {
     @Bindable var themePreferences: ThemePreferences
     @Bindable var history: UsageHistoryController
     @Bindable var proAccess: ProAccessController
+    #if DEBUG
+    @Bindable var testLicense: ProLicenseController
+    #endif
     @State private var status = SMAppService.mainApp.status
     @State private var errorMessage: String?
     @State private var previewTheme: UsageTheme?
     @State private var showingHistoryPreview = false
-    @State private var showingLicenseActivation = false
     @State private var confirmingHistoryClear = false
 
     private var versionText: String {
@@ -53,9 +55,6 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showingHistoryPreview) {
             UsageHistoryPreviewSheet(theme: themePreferences.activeTheme)
-        }
-        .sheet(isPresented: $showingLicenseActivation) {
-            ProLicenseActivationSheet()
         }
         .confirmationDialog("Clear all recorded usage history?", isPresented: $confirmingHistoryClear) {
             Button("Clear History", role: .destructive) { Task { await history.clear() } }
@@ -117,6 +116,18 @@ struct SettingsView: View {
                 Text("Debug-only and held in memory. This is not a purchase or production entitlement and resets when UsageGrid quits.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("Effective access: \(proAccess.activeAccessDescription)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Lemon Squeezy test licensing") {
+                Text("Debug-only test mode · Store 485681 · Product 1395768 · Variant 2179685")
+                    .font(.caption.weight(.semibold))
+                Text("Uses online validation and a dedicated test Keychain item. It is separate from Pro simulation and is not production purchasing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ProLicenseActivationView(controller: testLicense)
             }
             #endif
         }
@@ -148,9 +159,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 Button("Preview themes") {
                     previewTheme = UsageTheme.lookup(UsageThemeID.retro.rawValue)
-                }
-                Button("Preview licence activation") {
-                    showingLicenseActivation = true
                 }
             }
         }

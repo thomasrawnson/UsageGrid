@@ -26,12 +26,24 @@ struct UsageGridApp: App {
     @State private var proAccess: ProAccessController
     @State private var themePreferences: ThemePreferences
     @State private var usageHistory = UsageHistoryController()
+    #if DEBUG
+    @State private var testLicense: ProLicenseController
+    #endif
 
     init() {
         let access = ProAccessController()
         _proAccess = State(initialValue: access)
         _themePreferences = State(initialValue: ThemePreferences(access: access))
         _usageAlerts = State(initialValue: UsageAlertController(hasEffectiveProAccess: { access.effectiveAccess.hasProEntitlement }))
+        #if DEBUG
+        _testLicense = State(initialValue: ProLicenseController(
+            service: LemonSqueezyTestLicenseService(),
+            storage: KeychainProLicenseCredentialStore.testMode,
+            expectedIdentity: LemonSqueezyTestLicenseService.identity,
+            activationAvailable: true,
+            entitlementChanged: { access.setVerifiedTestLicense($0) }
+        ))
+        #endif
         #if DEBUG && !SWIFT_PACKAGE
         assert(Bundle.main.bundleIdentifier == "com.plutonightlabs.UsageGrid")
         #endif
@@ -57,11 +69,25 @@ struct UsageGridApp: App {
                 }
             }
             .accessibilityLabel(presentation.accessibilityLabel)
+            #if DEBUG
+            .task { testLicense.validateStoredCredential(initial: true) }
+            #endif
         }
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(preferences: menuBarPreferences, codex: codex, alerts: usageAlerts, themePreferences: themePreferences, history: usageHistory, proAccess: proAccess)
+            #if DEBUG
+            SettingsView(
+                preferences: menuBarPreferences, codex: codex, alerts: usageAlerts,
+                themePreferences: themePreferences, history: usageHistory, proAccess: proAccess,
+                testLicense: testLicense
+            )
+            #else
+            SettingsView(
+                preferences: menuBarPreferences, codex: codex, alerts: usageAlerts,
+                themePreferences: themePreferences, history: usageHistory, proAccess: proAccess
+            )
+            #endif
         }
     }
 }

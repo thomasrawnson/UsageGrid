@@ -28,13 +28,13 @@ The Keychain item uses stable app-specific identifiers:
 
 Only the licence key and activation identifier are represented by the P01 credential model. Licence keys, purchase details, activation identifiers, raw licensing responses, and arbitrary licensing errors must not appear in application logs or Support diagnostics. Tests use injected in-memory storage and do not touch the real Keychain.
 
-P01 includes the Keychain storage implementation but does not connect it to app launch or the production entitlement boundary. P02 will define when stored credentials are loaded and validated.
+UG-P02 uses a separate Debug-only test namespace: service `com.plutonightlabs.UsageGrid.license.test`, account `lemonsqueezy.test-pro-license`. Automated tests inject memory storage and never touch either real Keychain namespace.
 
 ## Validation and offline policy
 
-Every activation and validation result must match the configured UsageGrid store and Pro product before it can grant access. The real identifiers are intentionally not configured in P01.
+Every activation and validation result must match the configured UsageGrid store, product, and variant before it can grant access. UG-P02’s confirmed test-only identity is Store `485681`, Product `1395768`, Variant `2179685`. It is compiled out of Release and is not production configuration.
 
-Cached validation and offline operation are required design topics, but the grace duration and expiry behavior remain undecided. P01 does not implement or imply a grace period. P02 must test cache age, offline startup, provider outages, clock changes, revocation, and recovery against an owner-approved policy before production use.
+UG-P02 grants test access only after a successful online activation or validation in the current process. On restart, a stored key and instance ID are validated once; launch never creates a new activation. Offline or ambiguous validation failures do not grant access and are not automatically retried. The production cache and offline grace duration remain undecided for UG-P03.
 
 ## Deactivation, transfers, refunds, and revocation
 
@@ -54,7 +54,13 @@ P01 adds:
 
 Production purchasing and activation remain unavailable. The preview’s activation control is disabled in the production foundation, no checkout URL or network implementation exists, and the existing shared Pro-access controller remains unentitled. Debug Pro simulation remains a separate internal-only feature and is not connected to licensing.
 
-The P02 integration point is deliberately narrow: after a real Lemon Squeezy test-mode service verifies the configured store/product identity and the approved validation policy, its verified entitlement can feed `ProAccessController`. Until then, feature checks remain unchanged.
+## P02 Debug test integration
+
+Debug Settings contains a clearly labelled internal test section with secure key entry, activation, explicit validation, deactivation, progress, cancellation, and safe errors. It calls the official client-safe `POST /v1/licenses/activate`, `/validate`, and `/deactivate` endpoints using form fields documented by Lemon Squeezy; it embeds no merchant API secret and has no checkout link. Successful responses must match all three test identity values before feeding the shared `ProAccessController`.
+
+Official API references used for this implementation: [Activate a license key](https://docs.lemonsqueezy.com/api/license-api/activate-license-key), [Validate a license key](https://docs.lemonsqueezy.com/api/license-api/validate-license-key), and [Deactivate a license key](https://docs.lemonsqueezy.com/api/license-api/deactivate-license-key).
+
+Debug simulation and verified test licensing remain independent and their active source is shown in Settings. Test access loss immediately restores existing Free boundaries without clearing themes, alerts, history, or preferences. Remote activation followed by Keychain failure exposes an explicit **Retry secure storage** action and does not repeat activation. A failed deactivation retains credentials for retry. Release contains neither this service, its identifiers, nor its controls and remains unentitled.
 
 ## Delivery stages
 
@@ -62,4 +68,4 @@ The P02 integration point is deliberately narrow: after a real Lemon Squeezy tes
 - **UG-P02 — Lemon Squeezy test-mode integration and lifecycle verification:** hosted test checkout, client-safe activation/validation/deactivation, configured test identity, restart/recovery/revocation/offline-policy tests, and connection to shared access only after verification.
 - **UG-P03 — Live configuration and signed-artifact purchase testing:** owner-approved commercial policies, live product/store configuration, Developer ID signed and notarised artifact, clean-Mac purchase/activation/deactivation/transfer/refund testing, and final release approval.
 
-No live product, payment, checkout, signing, or publishing work is part of P01.
+No live product, payment, checkout, signing, or publishing work is part of P02. Price/currency, permitted Macs, update entitlement, and production offline behavior remain undecided.

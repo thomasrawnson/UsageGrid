@@ -67,6 +67,7 @@ The Release app launched for UG-R07 was:
 - Usage alerts preserve the existing Free primary preference and receipt keys. Effective Pro access adds an off-by-default secondary toggle, independent threshold, window-labelled notification copy, separate reset receipt, and access recheck after asynchronous permission lookup. Missing secondary data does not affect primary delivery.
 - Pro reset notifications are independently off by default for primary and secondary windows. They use only successful fresh readings, establish a process-local baseline without catch-up, require a passed prior reset plus a later same-duration reset timestamp, and persist separate per-window delivery receipts. No reset-time scheduling or extra refresh process was added.
 - UG-P01 adds only an isolated licensing foundation: activation/validation/deactivation interfaces, fixed safe states, and a Keychain credential boundary. Eight focused tests passed for the unavailable production state, stored-credential validation, success/failure, duplicate prevention, obsolete completion, storage failure, store/product identity matching, secret-safe errors/diagnostics, and isolated activation-view rendering. Debug and Release arm64 builds passed. Release binary inspection found the unavailable activation copy and stable Keychain identifiers, but no injected test key/identity or Debug simulation copy. No Lemon Squeezy network service, checkout URL, product/store configuration, or production entitlement connection exists; the shared production Pro boundary remains Free.
+- UG-P02 adds a Debug-only test License API client and Settings controls. Test responses must match Store `485681`, Product `1395768`, and Variant `2179685`; saved test credentials require online validation after restart. Test Keychain storage is separate from future production credentials, and Debug simulation remains independent. Release inspection for this slice must confirm the endpoint, test IDs, test namespace, and controls are absent and production remains unentitled.
 
 ## FAIL
 
@@ -93,7 +94,7 @@ These require hands-on interaction with the newly built Release menu-bar app:
 - Confirm Release refuses to activate a premium theme from an edited saved preference. Purchasing remains unavailable by design.
 - The Release app's panel-triggered refresh was not invoked by automation because `osascript` lacks Accessibility permission. The same bundled executable and request contract passed the privacy-redacted live probe above.
 - Installation and first launch of a future Developer ID signed and notarised beta on a clean supported Mac, including menu-bar discovery, Codex connection guidance, notification permission, persistence, quit, and reopen.
-- Lemon Squeezy test-mode purchase, activation, restart validation, deactivation/transfer, refund/revocation, and the owner-approved offline policy (UG-P02), followed by live signed-artifact purchase testing (UG-P03).
+- Manual Lemon Squeezy test-key activation, Pro-boundary review, restart validation, and deactivation in the Debug app. Automated mocked lifecycle coverage does not replace this private-key check. Transfer/refund behavior, production recovery/offline policy, and signed-artifact purchase testing remain UG-P03.
 
 ## BLOCKED
 
@@ -101,7 +102,7 @@ These require hands-on interaction with the newly built Release menu-bar app:
 - Team signing: Release build settings resolve no `DEVELOPMENT_TEAM`; the project deliberately uses `CODE_SIGN_IDENTITY = -` for local ad hoc signing.
 - Notarisation: not attempted. It remains blocked until a valid Developer ID Application identity and Team are configured and the signed artifact is rebuilt and reverified.
 - Signed-artifact installation: blocked until signing and notarisation are complete. When a signed beta exists, follow its release-specific installation instructions and verify a clean first launch; do not distribute the current ad hoc app or direct testers around Gatekeeper.
-- Production Pro licensing: blocked pending Lemon Squeezy test-mode integration, real product/store identity configuration, and decisions on price/currency, permitted Macs, update entitlement, and offline validation/grace duration.
+- Production Pro licensing: blocked pending UG-P03 live configuration and signed-artifact lifecycle testing, plus decisions on price/currency, permitted Macs, update entitlement, and offline validation/grace duration. UG-P02 test IDs are not production configuration.
 - Automated menu-panel inspection: blocked by missing Accessibility permission for `osascript`; this does not block manual testing.
 
 The current apps are locally runnable ad hoc builds with Hardened Runtime enabled. They are not Developer ID signed or notarised and must not be presented as ready for external distribution.

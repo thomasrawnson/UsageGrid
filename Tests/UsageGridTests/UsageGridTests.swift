@@ -10,7 +10,9 @@ private final class TestProLicenseStorage: ProLicenseCredentialStoring, @uncheck
     var credential: ProLicenseCredential?
     var failSave = false
     var failLoad = false
+    var failDelete = false
     var saveCount = 0
+    var deleteCount = 0
 
     init(credential: ProLicenseCredential? = nil) { self.credential = credential }
     func load() throws -> ProLicenseCredential? {
@@ -22,23 +24,31 @@ private final class TestProLicenseStorage: ProLicenseCredentialStoring, @uncheck
         if failSave { throw TestError.failed }
         self.credential = credential
     }
-    func delete() throws { credential = nil }
+    func delete() throws {
+        deleteCount += 1
+        if failDelete { throw TestError.failed }
+        credential = nil
+    }
     enum TestError: Error { case failed }
 }
 
 private actor TestProLicenseService: ProLicenseServicing {
     enum Result: Sendable {
         case success(ProLicenseVerification, Duration?)
-        case failure(String)
+        case failure(ProLicenseServiceError)
     }
 
     var activationResults: [Result]
     var validationResult: Result
+    var deactivationResult: Result?
     var activationCount = 0
+    var validationCount = 0
+    var deactivationCount = 0
 
-    init(activationResults: [Result], validationResult: Result? = nil) {
+    init(activationResults: [Result], validationResult: Result? = nil, deactivationResult: Result? = nil) {
         self.activationResults = activationResults
-        self.validationResult = validationResult ?? activationResults.first ?? .failure("unconfigured")
+        self.validationResult = validationResult ?? activationResults.first ?? .failure(.invalidResponse)
+        self.deactivationResult = deactivationResult
     }
 
     func activate(licenseKey: String) async throws -> ProLicenseVerification {
@@ -48,27 +58,32 @@ private actor TestProLicenseService: ProLicenseServicing {
     }
 
     func validate(credential: ProLicenseCredential) async throws -> ProLicenseVerification {
-        try await resolve(validationResult)
+        validationCount += 1
+        return try await resolve(validationResult)
     }
 
-    func deactivate(credential: ProLicenseCredential) async throws {}
+    func deactivate(credential: ProLicenseCredential) async throws -> ProLicenseIdentity {
+        deactivationCount += 1
+        let result = deactivationResult ?? validationResult
+        return try await resolve(result).identity
+    }
 
     func count() -> Int { activationCount }
+    func counts() -> (Int, Int, Int) { (activationCount, validationCount, deactivationCount) }
+    func setDeactivationResult(_ result: Result) { deactivationResult = result }
 
     private func resolve(_ result: Result) async throws -> ProLicenseVerification {
         switch result {
         case .success(let verification, let delay):
             if let delay { try? await Task.sleep(for: delay) }
             return verification
-        case .failure(let sensitiveMessage):
-            throw Failure(message: sensitiveMessage)
+        case .failure(let error):
+            throw error
         }
     }
-
-    struct Failure: Error { let message: String }
 }
 
-private let testLicenseIdentity = ProLicenseIdentity(storeID: "test-store", productID: "usagegrid-pro-test")
+private let testLicenseIdentity = ProLicenseIdentity(storeID: 485681, productID: 1395768, variantID: 2179685)
 private let testLicenseCredential = ProLicenseCredential(licenseKey: "TEST-SECRET-LICENCE", activationID: "test-activation")
 private var testLicenseVerification: ProLicenseVerification {
     ProLicenseVerification(credential: testLicenseCredential, identity: testLicenseIdentity)
@@ -94,14 +109,15 @@ private var testLicenseVerification: ProLicenseVerification {
 @Test @MainActor func storedLicenceRequiresSuccessfulRemoteVerification() async {
     let storage = TestProLicenseStorage(credential: testLicenseCredential)
     let service = TestProLicenseService(
-        activationResults: [.failure("unused")],
-        validationResult: .failure("SECRET backend response")
+        activationResults: [.failure(.networkUnavailable)],
+        validationResult: .failure(.invalidOrRevoked)
     )
     let controller = ProLicenseController(service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true)
 
     #expect(!controller.hasVerifiedEntitlement)
-    await controller.validateStoredCredential()
-    #expect(controller.state == .failed(.validationFailed))
+    #expect(controller.validateStoredCredential())
+    await controller.waitForOperation()
+    #expect(controller.state == .failed(.invalidOrRevoked))
     #expect(!controller.hasVerifiedEntitlement)
 }
 
@@ -119,19 +135,19 @@ private var testLicenseVerification: ProLicenseVerification {
     #expect(storage.saveCount == 1)
 
     let failed = ProLicenseController(
-        service: TestProLicenseService(activationResults: [.failure("key=PRIVATE-LICENCE")]),
+        service: TestProLicenseService(activationResults: [.failure(.rejected)]),
         storage: TestProLicenseStorage(), expectedIdentity: testLicenseIdentity, activationAvailable: true
     )
     #expect(failed.activate(licenseKey: "PRIVATE-LICENCE"))
     await failed.waitForOperation()
-    #expect(failed.state == .failed(.activationRejected))
+    #expect(failed.state == .failed(.invalidOrRevoked))
     #expect(!failed.hasVerifiedEntitlement)
 }
 
 @Test @MainActor func cancelledLicenceCompletionCannotOverrideANewerActivation() async {
     let oldVerification = ProLicenseVerification(
         credential: ProLicenseCredential(licenseKey: "OLD-SECRET", activationID: "old"),
-        identity: ProLicenseIdentity(storeID: "wrong", productID: "wrong")
+        identity: ProLicenseIdentity(storeID: 1, productID: 2, variantID: 3)
     )
     let service = TestProLicenseService(activationResults: [
         .success(oldVerification, .milliseconds(100)),
@@ -158,14 +174,14 @@ private var testLicenseVerification: ProLicenseVerification {
     )
     #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
     await controller.waitForOperation()
-    #expect(controller.state == .failed(.storageFailed))
+    #expect(controller.state == .failed(.storageFailedAfterActivation))
     #expect(!controller.hasVerifiedEntitlement)
 }
 
 @Test @MainActor func licenceProductAndStoreIdentityMustMatchBeforeAccess() async {
     let mismatched = ProLicenseVerification(
         credential: testLicenseCredential,
-        identity: ProLicenseIdentity(storeID: "another-store", productID: "another-product")
+        identity: ProLicenseIdentity(storeID: 1, productID: 2, variantID: 3)
     )
     let storage = TestProLicenseStorage()
     let controller = ProLicenseController(
@@ -182,7 +198,7 @@ private var testLicenseVerification: ProLicenseVerification {
 @Test @MainActor func licenceErrorsAndDiagnosticsCannotLeakLicenceValues() async {
     let secret = "LS-VERY-SECRET-LICENCE"
     let controller = ProLicenseController(
-        service: TestProLicenseService(activationResults: [.failure("Rejected \(secret) for customer@example.com")]),
+        service: TestProLicenseService(activationResults: [.failure(.rejected)]),
         storage: TestProLicenseStorage(), expectedIdentity: testLicenseIdentity, activationAvailable: true
     )
     #expect(controller.activate(licenseKey: secret))
@@ -203,6 +219,143 @@ private var testLicenseVerification: ProLicenseVerification {
     ))
     #expect(!diagnostics.contains(secret))
 }
+
+@Test @MainActor func restartValidatesStoredLicenceWithoutActivatingAgain() async {
+    let storage = TestProLicenseStorage(credential: testLicenseCredential)
+    let service = TestProLicenseService(
+        activationResults: [.failure(.invalidResponse)],
+        validationResult: .success(testLicenseVerification, nil)
+    )
+    let access = ProAccessController()
+    let controller = ProLicenseController(
+        service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true,
+        entitlementChanged: { access.setVerifiedTestLicense($0) }
+    )
+
+    #expect(controller.validateStoredCredential(initial: true))
+    #expect(!controller.validateStoredCredential(initial: true))
+    await controller.waitForOperation()
+    #expect(controller.state == .verifiedActive)
+    #expect(access.effectiveAccess.hasProEntitlement)
+    let counts = await service.counts()
+    #expect(counts.0 == 0)
+    #expect(counts.1 == 1)
+}
+
+@Test @MainActor func invalidRestartValidationRemovesTestAccess() async {
+    let access = ProAccessController()
+    access.setVerifiedTestLicense(true)
+    let controller = ProLicenseController(
+        service: TestProLicenseService(
+            activationResults: [.failure(.networkUnavailable)],
+            validationResult: .failure(.invalidOrRevoked)
+        ),
+        storage: TestProLicenseStorage(credential: testLicenseCredential),
+        expectedIdentity: testLicenseIdentity, activationAvailable: true,
+        entitlementChanged: { access.setVerifiedTestLicense($0) }
+    )
+
+    #expect(controller.validateStoredCredential())
+    await controller.waitForOperation()
+    #expect(controller.state == .failed(.invalidOrRevoked))
+    #expect(!access.effectiveAccess.hasProEntitlement)
+}
+
+@Test @MainActor func storageRecoveryDoesNotRepeatRemoteActivation() async {
+    let storage = TestProLicenseStorage()
+    storage.failSave = true
+    let service = TestProLicenseService(activationResults: [.success(testLicenseVerification, nil)])
+    let controller = ProLicenseController(
+        service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true
+    )
+
+    #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
+    await controller.waitForOperation()
+    #expect(controller.state == .failed(.storageFailedAfterActivation))
+    storage.failSave = false
+    #expect(controller.retryPendingCredentialStorage())
+    #expect(controller.state == .verifiedActive)
+    #expect(storage.credential == testLicenseCredential)
+    #expect(await service.count() == 1)
+}
+
+@Test @MainActor func deactivationFailureRetainsCredentialsAndSuccessRemovesAccess() async {
+    let storage = TestProLicenseStorage(credential: testLicenseCredential)
+    let service = TestProLicenseService(
+        activationResults: [.failure(.networkUnavailable)],
+        validationResult: .success(testLicenseVerification, nil),
+        deactivationResult: .failure(.networkUnavailable)
+    )
+    let access = ProAccessController()
+    access.setVerifiedTestLicense(true)
+    let controller = ProLicenseController(
+        service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true,
+        entitlementChanged: { access.setVerifiedTestLicense($0) }
+    )
+
+    #expect(controller.deactivate())
+    await controller.waitForOperation()
+    #expect(controller.state == .failed(.deactivationFailed))
+    #expect(storage.credential == testLicenseCredential)
+    #expect(!access.effectiveAccess.hasProEntitlement)
+
+    await service.setDeactivationResult(.success(testLicenseVerification, nil))
+    #expect(controller.deactivate())
+    await controller.waitForOperation()
+    #expect(controller.state == .inactive)
+    #expect(storage.credential == nil)
+    #expect(storage.deleteCount == 1)
+}
+
+#if DEBUG
+private actor TestLicenseHTTPTransport: ProLicenseHTTPTransporting {
+    let data: Data
+    let statusCode: Int
+    private(set) var requests: [URLRequest] = []
+    init(json: String, statusCode: Int = 200) {
+        data = Data(json.utf8)
+        self.statusCode = statusCode
+    }
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests.append(request)
+        let response = HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!
+        return (data, response)
+    }
+    func requestCount() -> Int { requests.count }
+}
+
+@Test func lemonSqueezyTestServiceUsesOfficialIdentityAndInstanceContract() async throws {
+    let transport = TestLicenseHTTPTransport(json: """
+    {"activated":true,"license_key":{"status":"active"},"instance":{"id":"instance-fixture"},"meta":{"store_id":485681,"product_id":1395768,"variant_id":2179685}}
+    """)
+    let service = LemonSqueezyTestLicenseService(transport: transport)
+    let verification = try await service.activate(licenseKey: "PRIVATE-FIXTURE")
+    #expect(verification.identity == testLicenseIdentity)
+    #expect(verification.credential.activationID == "instance-fixture")
+    #expect(await transport.requestCount() == 1)
+}
+
+@Test func lemonSqueezyTestServiceRejectsInvalidAndMalformedResponsesSafely() async {
+    let invalidService = LemonSqueezyTestLicenseService(transport: TestLicenseHTTPTransport(json: """
+    {"valid":false,"error":"sensitive provider detail","license_key":{"status":"disabled"},"meta":{"store_id":485681,"product_id":1395768,"variant_id":2179685}}
+    """))
+    do {
+        _ = try await invalidService.validate(credential: testLicenseCredential)
+        Issue.record("Expected disabled licence rejection")
+    } catch {
+        #expect(error as? ProLicenseServiceError == .invalidOrRevoked)
+        #expect(!String(describing: error).contains("sensitive provider detail"))
+    }
+
+    let malformedService = LemonSqueezyTestLicenseService(transport: TestLicenseHTTPTransport(json: "not-json"))
+    do {
+        _ = try await malformedService.validate(credential: testLicenseCredential)
+        Issue.record("Expected malformed response rejection")
+    } catch {
+        #expect(error as? ProLicenseServiceError == .invalidResponse)
+    }
+}
+#endif
 
 @Test func supportDiagnosticsUsesOnlyAllowlistedSafeFields() {
     let now = Date(timeIntervalSince1970: 2_000_000_000)
