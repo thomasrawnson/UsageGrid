@@ -250,7 +250,7 @@ Done: allow/deny/off scenarios tested on Mac, no first-run permission interrupti
 
 Record the selected distribution/payment direction, unresolved commercial policies, supported offline verification, recovery/refund handling and update/support terms. Verify current vendor capabilities before integration. Show the exact proposed live configuration to Tom before account setup or sales.
 
-Current decision: direct signed/notarised distribution with a one-off UsageGrid Pro purchase through Lemon Squeezy hosted checkout and licence-key activation, without a separate UsageGrid account initially. Price/currency, permitted Mac count, major-version/update entitlement and offline grace duration remain undecided. Do not build multiple payment adapters or a bespoke account server. Context: specification §§2,8; `docs/PRO_LICENSING.md`.
+Current decision: direct signed/notarised distribution with a one-off UsageGrid Pro purchase through Lemon Squeezy hosted checkout and licence-key activation, without a separate UsageGrid account initially. The 30 September launch pack confirms £9.99 GBP one-time, up to three Macs and no expiry for the purchased major version (future paid major upgrades may be separate). Seven-day offline grace remains a recommendation pending explicit approval. Resolve production cache/cadence, upgrade/support details, live identity and Apple prerequisites through `docs/UG_P03_READINESS.md`; do not reopen confirmed terms merely because older implementation text omitted them. Do not build multiple payment adapters or a bespoke account server. Context: specification §§2,8; `docs/PRO_LICENSING.md`.
 
 ### T27 — Verify entitlements
 
