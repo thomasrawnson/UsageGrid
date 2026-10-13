@@ -9,7 +9,8 @@ typealias CodexUsageWindow = QuotaWindow
 
 enum CodexUsageReadError: Equatable {
     case executableNotFound, processLaunchFailed, initializationTimedOut, initializationFailed
-    case requestTimedOut, authenticationRequired, requestFailed, decodingFailed, cancelled
+    case requestTimedOut, authenticationRequired, requestFailed
+    case usageUnavailable, unsupportedResponse, decodingFailed, cancelled
 
     var userMessage: String {
         switch self {
@@ -20,6 +21,8 @@ enum CodexUsageReadError: Equatable {
         case .requestTimedOut: "Codex usage request timed out. Try again."
         case .authenticationRequired: "Codex is signed out. Sign in with Codex, then refresh."
         case .requestFailed: "Codex rejected the usage request. Check Codex /status."
+        case .usageUnavailable: "Codex responded, but usage is temporarily unavailable. Try again later."
+        case .unsupportedResponse: "Codex returned an unsupported usage response. Update UsageGrid if /status works."
         case .decodingFailed: "Codex returned no supported usage windows. Update UsageGrid if /status works."
         case .cancelled: "Codex usage refresh was cancelled. Retry."
         }
@@ -34,6 +37,12 @@ struct CodexUsageReadResult {
 }
 
 enum CodexUsageReader {
+    enum ParseResult: Equatable {
+        case success([CodexUsageWindow])
+        case usageUnavailable
+        case unsupportedResponse
+    }
+
     private static let logger = Logger(subsystem: "com.plutonightlabs.UsageGrid", category: "CodexUsage")
     static let executableCandidates = [
         "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
@@ -65,24 +74,43 @@ enum CodexUsageReader {
     }
 
     static func parse(_ data: Data, now: Date) -> [CodexUsageWindow]? {
+        guard case .success(let windows) = parseResult(data, now: now) else { return nil }
+        return windows
+    }
+
+    static func parseResult(_ data: Data, now: Date) -> ParseResult {
         guard let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               message["error"] == nil,
-              let result = message["result"] as? [String: Any],
-              let buckets = result["rateLimitsByLimitId"] as? [String: Any],
-              let codex = buckets["codex"] as? [String: Any] else { return nil }
+              let result = message["result"] as? [String: Any] else { return .unsupportedResponse }
+
+        // The documented app-server contract requires the top-level rateLimits
+        // snapshot. Older responses also exposed a per-limit map, so retain that
+        // as a compatibility fallback without depending on plan metadata.
+        let buckets = result["rateLimitsByLimitId"] as? [String: Any]
+        let mappedCodex = (buckets?["codex"] as? [String: Any]) ?? buckets?.values
+            .compactMap { $0 as? [String: Any] }
+            .first { $0["limitId"] as? String == "codex" }
+        guard let codex = (result["rateLimits"] as? [String: Any]) ?? mappedCodex else {
+            return result.keys.contains("rateLimits") || result.keys.contains("rateLimitsByLimitId")
+                ? .usageUnavailable : .unsupportedResponse
+        }
 
         let windows = ["primary", "secondary"].compactMap { key -> CodexUsageWindow? in
             guard let value = codex[key] as? [String: Any] else { return nil }
             return parseWindow(value, id: key, now: now)
         }.sorted { $0.durationMinutes < $1.durationMinutes }
-        return windows.isEmpty ? nil : windows
+        if !windows.isEmpty { return .success(windows) }
+        let containedWindow = ["primary", "secondary"].contains { codex[$0] is [String: Any] }
+        return containedWindow ? .unsupportedResponse : .usageUnavailable
     }
 
     private static func parseWindow(_ value: [String: Any], id: String, now: Date) -> CodexUsageWindow? {
-        guard let used = value["usedPercent"] as? Double, used.isFinite,
-              let duration = value["windowDurationMins"] as? Int, duration > 0 else { return nil }
+        guard let used = value["usedPercent"] as? Double, used.isFinite else { return nil }
+        let duration = value["windowDurationMins"] as? Int ?? 0
+        guard duration >= 0 else { return nil }
         let label: String
-        if duration == 10_080 { label = "Weekly limit" }
+        if duration == 0 { label = id == "primary" ? "Primary limit" : "Secondary limit" }
+        else if duration == 10_080 { label = "Weekly limit" }
         else if duration.isMultiple(of: 1_440) { label = "\(duration / 1_440)-day limit" }
         else if duration.isMultiple(of: 60) { label = "\(duration / 60)-hour limit" }
         else { label = "\(duration)-minute limit" }
@@ -156,12 +184,17 @@ enum CodexUsageReader {
             logger.error("Codex rate-limit request returned an error; category=\(String(describing: error), privacy: .public)")
             return .failure(error)
         }
-        guard let windows = parse(reply, now: Date()) else {
-            logger.error("Codex rate-limit response contained no supported valid windows")
-            return .failure(.decodingFailed)
+        switch parseResult(reply, now: Date()) {
+        case .success(let windows):
+            logger.info("Codex rate-limit request succeeded with \(windows.count, privacy: .public) window(s)")
+            return .success(windows)
+        case .usageUnavailable:
+            logger.error("Codex rate-limit response contained no usage windows")
+            return .failure(.usageUnavailable)
+        case .unsupportedResponse:
+            logger.error("Codex rate-limit response used an unsupported format")
+            return .failure(.unsupportedResponse)
         }
-        logger.info("Codex rate-limit request succeeded with \(windows.count, privacy: .public) window(s)")
-        return .success(windows)
     }
 
     private static func responseHasError(_ data: Data) -> Bool {

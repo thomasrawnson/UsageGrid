@@ -324,11 +324,11 @@ final class UsageAlertController {
         guard isFresh, let windows else { return false }
         var delivered = false
         if preferences.enabled, let primary = windows.first(where: { $0.id == AlertWindow.primary.rawValue }) {
-            delivered = await evaluate(primary, as: .primary) || delivered
+            delivered = await evaluate(primary, as: .primary, observedAt: observedAt) || delivered
         }
         if hasEffectiveProAccess(), preferences.secondaryEnabled,
            let secondary = windows.first(where: { $0.id == AlertWindow.secondary.rawValue }) {
-            delivered = await evaluate(secondary, as: .secondary) || delivered
+            delivered = await evaluate(secondary, as: .secondary, observedAt: observedAt) || delivered
         }
         if hasEffectiveProAccess() {
             delivered = await evaluateReset(windows.first(where: { $0.id == AlertWindow.primary.rawValue }), as: .primary, observedAt: observedAt) || delivered
@@ -354,9 +354,10 @@ final class UsageAlertController {
         }
     }
 
-    private func evaluate(_ usage: CodexUsageWindow, as window: AlertWindow) async -> Bool {
+    private func evaluate(_ usage: CodexUsageWindow, as window: AlertWindow, observedAt: Date) async -> Bool {
         let threshold = window == .primary ? preferences.threshold : preferences.secondaryThreshold
-        guard usage.usedPercentage >= Double(threshold.rawValue), let resetsAt = usage.resetsAt else { return false }
+        guard usage.usedPercentage >= Double(threshold.rawValue),
+              let resetsAt = usage.resetsAt, resetsAt > observedAt else { return false }
         let windowKey = "\(window.rawValue):\(usage.durationMinutes):\(Int64(resetsAt.timeIntervalSince1970.rounded()))"
         let priorReceipt = window == .primary ? preferences.lastAlertedWindow : preferences.lastAlertedSecondaryWindow
         guard priorReceipt != windowKey else { return false }

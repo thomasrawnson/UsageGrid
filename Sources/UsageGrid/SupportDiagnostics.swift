@@ -92,6 +92,8 @@ enum SupportDiagnosticsReport {
         case .requestTimedOut: return ("Request timeout", "The usage request did not complete in time.")
         case .authenticationRequired: return ("Authentication", "Codex sign-in is required.")
         case .requestFailed: return ("Request", "The local Codex usage request failed.")
+        case .usageUnavailable: return ("Usage unavailable", "Codex returned no usage windows.")
+        case .unsupportedResponse: return ("Unsupported response", "The Codex usage response format was not supported.")
         case .decodingFailed: return ("Usage data", "No supported usage windows were available.")
         case .cancelled: return ("Cancelled", "The usage refresh was cancelled.")
         }

@@ -730,7 +730,8 @@ private func expectProductionLicenseError(
 @Test func supportDiagnosticsMapsEveryReaderErrorToFixedSafeCopy() {
     let errors: [CodexUsageReadError] = [
         .executableNotFound, .processLaunchFailed, .initializationTimedOut, .initializationFailed,
-        .requestTimedOut, .authenticationRequired, .requestFailed, .decodingFailed, .cancelled
+        .requestTimedOut, .authenticationRequired, .requestFailed, .usageUnavailable,
+        .unsupportedResponse, .decodingFailed, .cancelled
     ]
     for error in errors {
         let mapped = SupportDiagnosticsReport.safeErrorDescription(error)
@@ -1030,6 +1031,50 @@ actor TestHistoryStore: UsageHistoryPersisting {
     #expect(CodexUsageReader.parse(Data("not json".utf8), now: now) == nil)
 }
 
+@Test func codexRateLimitParsingPrefersDocumentedTopLevelSnapshot() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let payload = Data(#"{"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":37,"windowDurationMins":300,"resetsAt":5920}},"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":99,"windowDurationMins":300,"resetsAt":5920}}},"planType":"changed-plan"}}"#.utf8)
+    let windows = CodexUsageReader.parse(payload, now: now)
+    #expect(windows?.count == 1)
+    #expect(windows?.first?.usedPercentage == 37)
+    #expect(windows?.first?.label == "5-hour limit")
+}
+
+@Test func codexRateLimitParsingAcceptsMappedLimitWithChangedKey() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let payload = Data(#"{"result":{"rateLimitsByLimitId":{"new-account-scope":{"limitId":"codex","primary":{"usedPercent":21,"windowDurationMins":300,"resetsAt":5920}}}}}"#.utf8)
+    #expect(CodexUsageReader.parse(payload, now: now)?.first?.usedPercentage == 21)
+}
+
+@Test func codexRateLimitParsingHandlesOptionalAndPartialFieldsWithoutInventingValues() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let payload = Data(#"{"result":{"rateLimits":{"primary":{"usedPercent":42},"secondary":{"usedPercent":"malformed","windowDurationMins":10080}}}}"#.utf8)
+    let windows = CodexUsageReader.parse(payload, now: now)
+    #expect(windows?.count == 1)
+    #expect(windows?.first?.label == "Primary limit")
+    #expect(windows?.first?.durationMinutes == 0)
+    #expect(windows?.first?.resetsAt == nil)
+    #expect(windows?.first?.resetText == "Reset unavailable")
+}
+
+@Test func codexRateLimitParsingDistinguishesUnavailableAndUnsupportedResponses() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let unavailable = Data(#"{"result":{"rateLimits":{"limitId":"codex","primary":null,"secondary":null}}}"#.utf8)
+    let malformed = Data(#"{"result":{"rateLimits":{"primary":{"usedPercent":"bad","windowDurationMins":300}}}}"#.utf8)
+    #expect(CodexUsageReader.parseResult(unavailable, now: now) == .usageUnavailable)
+    #expect(CodexUsageReader.parseResult(malformed, now: now) == .unsupportedResponse)
+    #expect(CodexUsageReader.parseResult(Data("not json".utf8), now: now) == .unsupportedResponse)
+}
+
+@Test func codexExpiredWindowIsExplicitAndNotFabricated() {
+    let now = Date(timeIntervalSince1970: 2_000)
+    let payload = Data(#"{"result":{"rateLimits":{"primary":{"usedPercent":91,"windowDurationMins":300,"resetsAt":1000}}}}"#.utf8)
+    let window = CodexUsageReader.parse(payload, now: now)?.first
+    #expect(window?.usedPercentage == 91)
+    #expect(window?.resetsAt == Date(timeIntervalSince1970: 1_000))
+    #expect(window?.resetText == "Reset due")
+}
+
 @Test func codexExecutableResolutionSupportsCurrentChatGPTBundle() {
     let current = CodexUsageReader.executableCandidates[0]
     let legacy = CodexUsageReader.executableCandidates[2]
@@ -1052,6 +1097,8 @@ actor TestHistoryStore: UsageHistoryPersisting {
     #expect(CodexUsageReadError.executableNotFound.userMessage.contains("executable"))
     #expect(CodexUsageReadError.authenticationRequired.userMessage.contains("Sign in"))
     #expect(CodexUsageReadError.requestTimedOut.userMessage.contains("timed out"))
+    #expect(CodexUsageReadError.usageUnavailable.userMessage.contains("temporarily unavailable"))
+    #expect(CodexUsageReadError.unsupportedResponse.userMessage.contains("unsupported"))
     #expect(CodexUsageReadError.decodingFailed.userMessage.contains("supported usage windows"))
 }
 
@@ -1274,8 +1321,8 @@ actor TestHistoryStore: UsageHistoryPersisting {
     let notifications = TestUsageAlertNotifications(status: .authorized)
     let controller = UsageAlertController(preferences: preferences, notifications: notifications)
 
-    #expect(await controller.evaluate(windows: [alertWindow(used: 90, reset: Date(timeIntervalSince1970: 20_000))], isFresh: true))
-    #expect(await controller.evaluate(windows: [alertWindow(used: 96, reset: Date(timeIntervalSince1970: 30_000))], isFresh: true))
+    #expect(await controller.evaluate(windows: [alertWindow(used: 90, reset: Date(timeIntervalSince1970: 20_000))], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
+    #expect(await controller.evaluate(windows: [alertWindow(used: 96, reset: Date(timeIntervalSince1970: 30_000))], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
     let deliveries = await notifications.snapshot().deliveries
     #expect(deliveries.count == 2)
     #expect(deliveries[0].title == "Codex usage limit approaching")
@@ -1293,11 +1340,11 @@ actor TestHistoryStore: UsageHistoryPersisting {
     preferences.enabled = true
     var controller = UsageAlertController(preferences: preferences, notifications: notifications)
 
-    #expect(await controller.evaluate(windows: [alertWindow(used: 92, reset: reset)], isFresh: true))
-    #expect(!(await controller.evaluate(windows: [alertWindow(used: 95, reset: reset)], isFresh: true)))
+    #expect(await controller.evaluate(windows: [alertWindow(used: 92, reset: reset)], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
+    #expect(!(await controller.evaluate(windows: [alertWindow(used: 95, reset: reset)], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000))))
     preferences = UsageAlertPreferences(defaults: defaults)
     controller = UsageAlertController(preferences: preferences, notifications: notifications)
-    #expect(!(await controller.evaluate(windows: [alertWindow(used: 96, reset: reset)], isFresh: true)))
+    #expect(!(await controller.evaluate(windows: [alertWindow(used: 96, reset: reset)], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000))))
     #expect(await notifications.snapshot().deliveries.count == 1)
 }
 
@@ -1310,8 +1357,8 @@ actor TestHistoryStore: UsageHistoryPersisting {
     let notifications = TestUsageAlertNotifications(status: .authorized)
     let controller = UsageAlertController(preferences: preferences, notifications: notifications)
 
-    #expect(await controller.evaluate(windows: [alertWindow(used: 90, reset: Date(timeIntervalSince1970: 20_000))], isFresh: true))
-    #expect(await controller.evaluate(windows: [alertWindow(used: 90, reset: Date(timeIntervalSince1970: 30_000))], isFresh: true))
+    #expect(await controller.evaluate(windows: [alertWindow(used: 90, reset: Date(timeIntervalSince1970: 20_000))], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
+    #expect(await controller.evaluate(windows: [alertWindow(used: 90, reset: Date(timeIntervalSince1970: 30_000))], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
     #expect(await notifications.snapshot().deliveries.count == 2)
 }
 
@@ -1408,9 +1455,9 @@ actor TestHistoryStore: UsageHistoryPersisting {
     let controller = UsageAlertController(preferences: preferences, notifications: notifications)
     let window = alertWindow(used: 95, reset: Date(timeIntervalSince1970: 20_000))
 
-    #expect(!(await controller.evaluate(windows: [window], isFresh: true)))
+    #expect(!(await controller.evaluate(windows: [window], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000))))
     #expect(controller.deliveryError != nil)
-    #expect(!(await controller.evaluate(windows: [window], isFresh: true)))
+    #expect(!(await controller.evaluate(windows: [window], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000))))
     #expect(await notifications.snapshot().deliveries.count == 1)
 }
 
@@ -1452,7 +1499,7 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
         alertWindow(used: 90, reset: reset),
         alertWindow(used: 80, reset: reset, id: "secondary", duration: 10_080, label: "Weekly limit")
     ]
-    #expect(await controller.evaluate(windows: windows, isFresh: true))
+    #expect(await controller.evaluate(windows: windows, isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
     let deliveries = await notifications.snapshot().deliveries
     #expect(deliveries.count == 1)
     #expect(deliveries[0].body.contains("Secondary window"))
@@ -1467,8 +1514,8 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     preferences.enabled = true; preferences.secondaryEnabled = true
     let notifications = TestUsageAlertNotifications(status: .authorized)
     let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
-    #expect(await controller.evaluate(windows: [alertWindow(used: 91, reset: Date(timeIntervalSince1970: 20_000))], isFresh: true))
-    #expect(await controller.evaluate(windows: [alertWindow(used: 91, reset: Date(timeIntervalSince1970: 30_000), id: "secondary", duration: 10_080, label: "Weekly limit")], isFresh: true))
+    #expect(await controller.evaluate(windows: [alertWindow(used: 91, reset: Date(timeIntervalSince1970: 20_000))], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
+    #expect(await controller.evaluate(windows: [alertWindow(used: 91, reset: Date(timeIntervalSince1970: 30_000), id: "secondary", duration: 10_080, label: "Weekly limit")], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
     #expect(await notifications.snapshot().deliveries.count == 2)
 }
 
@@ -1481,11 +1528,11 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     let reset = Date(timeIntervalSince1970: 20_000)
     let windows = [alertWindow(used: 92, reset: reset), alertWindow(used: 92, reset: reset, id: "secondary", duration: 10_080, label: "Weekly limit")]
     var controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
-    #expect(await controller.evaluate(windows: windows, isFresh: true))
+    #expect(await controller.evaluate(windows: windows, isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
     #expect(await notifications.snapshot().deliveries.count == 2)
     preferences = UsageAlertPreferences(defaults: defaults)
     controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
-    #expect(!(await controller.evaluate(windows: windows, isFresh: true)))
+    #expect(!(await controller.evaluate(windows: windows, isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000))))
     #expect(await notifications.snapshot().deliveries.count == 2)
 }
 
@@ -1730,7 +1777,9 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     let failures: [(CodexUsageReadError, CodexSetupState)] = [
         (.executableNotFound, .executableNotFound),
         (.authenticationRequired, .authenticationRequired),
-        (.decodingFailed, .usageUnavailable)
+        (.usageUnavailable, .usageUnavailable),
+        (.decodingFailed, .usageUnavailable),
+        (.unsupportedResponse, .unsupportedResponse)
     ]
     for (error, expected) in failures {
         state = CodexRefreshState()

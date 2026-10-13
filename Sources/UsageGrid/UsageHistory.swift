@@ -224,7 +224,7 @@ final class UsageHistoryController {
             if kind == .primary { session.reset() }
         }
         let additions = windows.compactMap { window -> UsageHistorySample? in
-            guard let reset = window.resetsAt, reset > observedAt,
+            guard window.durationMinutes > 0, let reset = window.resetsAt, reset > observedAt,
                   let kind = UsageHistoryWindow(rawValue: window.id) else { return nil }
             return UsageHistorySample(observedAt: observedAt, window: kind, durationMinutes: window.durationMinutes,
                                       resetsAt: reset, usedPercentage: window.usedPercentage, processRunID: windowRunIDs[kind]!)

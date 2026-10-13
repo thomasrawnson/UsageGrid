@@ -8,6 +8,7 @@ enum CodexSetupState: Equatable {
     case authenticationRequired
     case connectionFailure(String)
     case usageUnavailable
+    case unsupportedResponse
 
     static func from(_ state: CodexRefreshState) -> Self? {
         if let windows = state.windows {
@@ -17,7 +18,8 @@ enum CodexSetupState: Equatable {
         switch state.lastError {
         case .executableNotFound: return .executableNotFound
         case .authenticationRequired: return .authenticationRequired
-        case .decodingFailed: return .usageUnavailable
+        case .usageUnavailable, .decodingFailed: return .usageUnavailable
+        case .unsupportedResponse: return .unsupportedResponse
         case .processLaunchFailed, .initializationTimedOut, .initializationFailed,
              .requestTimedOut, .requestFailed, .cancelled, .none:
             return .connectionFailure(state.errorMessage ?? "Could not connect to local Codex usage. Try again.")
@@ -31,6 +33,7 @@ enum CodexSetupState: Equatable {
         case .authenticationRequired: "Codex sign-in required"
         case .connectionFailure: "Couldn’t connect to Codex"
         case .usageUnavailable: "Connected, but usage is unavailable"
+        case .unsupportedResponse: "Codex usage format is unsupported"
         }
     }
 
@@ -46,6 +49,8 @@ enum CodexSetupState: Equatable {
             message
         case .usageUnavailable:
             "The local Codex integration responded, but did not provide a supported usage window. No zero or demo value is substituted."
+        case .unsupportedResponse:
+            "The local Codex integration returned usage data in a format this version of UsageGrid does not support. Update UsageGrid if Codex /status still works."
         }
     }
 }
