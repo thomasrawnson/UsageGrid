@@ -1,6 +1,6 @@
 # UsageGrid Beta Guide
 
-UsageGrid is a macOS 14 or later menu-bar app that reads Codex usage windows through the local Codex app-server integration and presents them as a compact meter. It does not send prompts or upload usage data. Claude usage is currently unavailable.
+UsageGrid is a macOS 14 or later menu-bar app that reads Codex usage windows through the local Codex app-server integration and presents them as a compact meter. It also contains an experimental opt-in Claude Code status-line snapshot integration. It does not send prompts, upload usage data, inspect provider credentials, or configure Claude Code automatically.
 
 External distribution is not ready yet. Use these instructions only with a future UsageGrid build that has been Developer ID signed and notarised. The current ad hoc development builds are for local development and must not be distributed as beta releases.
 
@@ -25,9 +25,17 @@ When a future signed beta is supplied, install and open it using the accompanyin
 
 Choose **Settings** at the bottom of the popup to open the General, Appearance, Usage & History, Alerts, and Help tabs. The setup guide remains available under Settings → Help.
 
+### Experimental Claude onboarding
+
+Select **Claude — Experimental** in the popup and expand **Claude setup and removal**. Claude usage requires Claude Code CLI, an eligible subscription/session, and a manually configured `UsageGridClaudeCapture` status-line helper. Usage fields cannot appear until Claude Code receives an API response that contains them.
+
+UsageGrid cannot tell from a missing snapshot whether Claude Code is installed, authenticated, configured, or currently returning eligible fields. Follow the panel's reviewed template rather than treating the missing state as a definite diagnosis. If an existing status line is configured, back it up and use the coexistence wrapper: Claude Code supports one status-line command, and UsageGrid must not silently replace it.
+
+Claude Refresh rereads the local snapshot only. New quota observations depend on later Claude Code activity and provider responses. To remove the integration, restore the exact previous `statusLine` setting—or remove only the setting you added—without deleting unrelated Claude settings.
+
 ## Reading usage
 
-The popup shows provider-supplied usage windows, their percentage used, reset information when available, and the time of the last successful update. Missing windows remain unavailable; UsageGrid never substitutes zero or sample data for a live reading.
+The popup shows provider-supplied usage windows, their percentage used, reset information when available, and freshness information appropriate to the provider. Missing windows remain unavailable; UsageGrid never substitutes zero or sample data for a live reading. Claude separately shows snapshot capture time and the first local observation time for unchanged quota values.
 
 Settings → General → Menu bar display offers:
 
@@ -41,7 +49,7 @@ If a refresh fails after a successful reading, UsageGrid retains the last readin
 
 ## Free and Pro presentation
 
-The current production experience is Free. It includes live Codex usage, all menu-bar display modes, Programming and Professional themes, the primary-window threshold alert, setup guidance, and support diagnostics.
+The current production experience is Free. It includes live Codex usage, the experimental passive Claude snapshot panel, all Codex menu-bar display modes, Programming and Professional themes, the Codex primary-window threshold alert, setup guidance, and support diagnostics. Menu-bar usage, alerts, and history currently track Codex only.
 
 Settings → Appearance also provides clearly labelled sample previews for the planned Pro themes: 90s Retro, Anime, Zen Forest, and Space. Sample previews do not replace live data or change the saved theme. A sample history preview is also available.
 

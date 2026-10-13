@@ -114,7 +114,7 @@ struct CodexSetupGuideView: View {
             }
             Text("2. Sign in to Codex using ChatGPT or the Codex app. UsageGrid does not handle credentials.")
             Text("3. Retry. UsageGrid reads quota windows through the local Codex app-server integration.")
-            Text("Claude remains unavailable in this version and is not connected by Codex setup.")
+            Text("Claude is a separate experimental status-line snapshot integration and is not connected by Codex setup.")
                 .foregroundStyle(.secondary)
         }
         .fixedSize(horizontal: false, vertical: true)

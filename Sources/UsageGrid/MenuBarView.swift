@@ -6,6 +6,7 @@ struct MenuBarView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.colorScheme) private var colorScheme
     @Bindable var codex: CodexRefreshCoordinator
+    @Bindable var claude: ClaudeUsageCoordinator
     @Bindable var alerts: UsageAlertController
     @Bindable var themePreferences: ThemePreferences
     @Bindable var history: UsageHistoryController
@@ -51,6 +52,7 @@ struct MenuBarView: View {
             Task { await history.load() }
             codex.activate()
             refreshCodex()
+            claude.refresh()
         }
         .onDisappear { presentation.popupDismissed() }
         .onChange(of: proAccess.effectiveAccess.canViewUsageHistory) { _, canViewHistory in
@@ -93,6 +95,12 @@ struct MenuBarView: View {
                     .foregroundStyle(palette.secondaryText)
                     .accessibilityLabel("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
             }
+            if selectedProvider == .claude, let capturedAt = claude.capturedAt {
+                Text("Captured \(capturedAt.formatted(date: .omitted, time: .shortened))")
+                    .font(.system(.caption, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(palette.secondaryText)
+            }
             if selectedProvider == .codex {
                 if codex.isRefreshing {
                     ProgressView()
@@ -109,6 +117,15 @@ struct MenuBarView: View {
                     .accessibilityLabel("Refresh Codex usage")
                     .help("Refresh Codex usage")
                 }
+            } else {
+                Button(action: { claude.refresh() }) {
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(palette.accent)
+                .accessibilityLabel("Reread local Claude snapshot")
+                .help("Reread local snapshot; does not contact Claude")
             }
         }
         .font(.system(.headline, design: .monospaced))
@@ -127,11 +144,15 @@ struct MenuBarView: View {
             #endif
 
             HStack(spacing: 0) {
-                providerTab(.codex, title: "Codex")
-                providerTab(.claude, title: "Claude")
+                providerTab(.codex)
+                providerTab(.claude)
             }
             .background(palette.surface)
             .overlay(Rectangle().stroke(palette.border, lineWidth: 1).allowsHitTesting(false))
+
+            Text("Menu-bar usage, alerts and history currently track Codex only.")
+                .font(.caption2)
+                .foregroundStyle(palette.secondaryText)
 
             if selectedProvider == .codex {
                 if codex.isStale {
@@ -164,7 +185,10 @@ struct MenuBarView: View {
                         CodexSetupStatusView(state: setupState, retry: refreshCodex)
                     } else if let codexWindows = codex.windows {
                         ForEach(codexWindows, id: \.id) { window in
-                            CodexWindowRow(window: window, palette: palette)
+                            CodexWindowRow(
+                                window: window, palette: palette, providerName: "Codex",
+                                freshnessDescription: codex.isStale ? "stale" : nil
+                            )
                         }
                     }
                 }
@@ -183,19 +207,47 @@ struct MenuBarView: View {
                 .font(.system(.subheadline, design: .monospaced).weight(.semibold))
                 .foregroundStyle(palette.secondaryText)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(">")
-                            .foregroundStyle(palette.syntax)
-                            .accessibilityHidden(true)
-                        Text("Usage unavailable")
-                    }
-                    .foregroundStyle(palette.secondaryText)
-                    Text("Claude integration is unavailable. Codex setup does not connect Claude.")
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Experimental passive snapshot integration. It does not refresh Claude usage independently.")
                         .font(.caption)
-                        .foregroundStyle(palette.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let windows = claude.windows {
+                        if claude.isStale {
+                            Label(claude.availability == .expired ? "Expired snapshot" : "Stale measurement", systemImage: "exclamationmark.triangle")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(palette.warning)
+                        }
+                        ForEach(windows) { window in
+                            CodexWindowRow(
+                                window: window, palette: palette, providerName: "Claude",
+                                freshnessDescription: claude.accessibilityFreshnessDescription
+                            )
+                        }
+                        if let measured = claude.measurementObservedAt {
+                            Text("Quota values first captured \(measured.formatted(date: .abbreviated, time: .shortened)).")
+                                .font(.caption)
+                        }
+                        if let captured = claude.capturedAt {
+                            Text("Payload captured \(captured.formatted(date: .abbreviated, time: .shortened)). Repeated identical payloads do not refresh the quota measurement time.")
+                                .font(.caption)
+                        }
+                    } else {
+                        HStack(spacing: 6) {
+                            Text(">").foregroundStyle(palette.syntax).accessibilityHidden(true)
+                            Text("Usage unavailable")
+                        }
+                        Text(claude.availability.message)
+                            .font(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text("Refresh rereads the local snapshot only.")
+                        .font(.caption2)
+                    DisclosureGroup("Claude setup and removal") {
+                        ClaudeSetupGuideView()
+                            .padding(.top, 4)
+                    }
+                    .font(.caption)
                 }
+                .foregroundStyle(palette.secondaryText)
                 .font(.system(.callout, design: .monospaced))
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -253,7 +305,7 @@ struct MenuBarView: View {
         codex.requestRefresh()
     }
 
-    private func providerTab(_ provider: SelectedProvider, title: String) -> some View {
+    private func providerTab(_ provider: SelectedProvider) -> some View {
         let isSelected = selectedProvider == provider
         return Button {
             switch provider {
@@ -261,7 +313,7 @@ struct MenuBarView: View {
             case .claude: selectedProvider = .claude
             }
         } label: {
-            Text(title)
+            Text(provider.selectorTitle)
                 .font(.system(.callout, design: .monospaced).weight(isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? palette.accent : palette.secondaryText)
                 .frame(maxWidth: .infinity, minHeight: 30)
@@ -275,8 +327,89 @@ struct MenuBarView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(title) provider")
+        .accessibilityLabel(provider.accessibilityLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+enum ClaudeOnboardingContent {
+    static let repositoryBuildCommand = "swift build -c release --product UsageGridClaudeCapture"
+
+    static let configurationTemplate = """
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "/absolute/path/to/UsageGridClaudeCapture --display"
+      }
+    }
+    """
+
+    static let coexistenceWrapperTemplate = """
+    #!/bin/sh
+    input=$(cat)
+    printf '%s' "$input" | /absolute/path/to/UsageGridClaudeCapture >/dev/null 2>&1 || true
+    printf '%s' "$input" | /absolute/path/to/existing-status-line
+    """
+
+    static let undetectableState = "UsageGrid cannot determine from a missing snapshot whether Claude Code is installed, authenticated, or configured."
+}
+
+struct ClaudeSetupGuideView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Requirements")
+                .fontWeight(.semibold)
+            Text("Claude Code CLI and an eligible Claude subscription are required. Claude Code must receive an API response containing the documented usage fields before a snapshot can exist.")
+            Text("UsageGrid does not query Anthropic, inspect authentication, or edit Claude Code settings. Refresh only rereads the local snapshot.")
+            Text(ClaudeOnboardingContent.undetectableState)
+
+            Text("Set up manually")
+                .fontWeight(.semibold)
+            Text("Build or obtain the UsageGridClaudeCapture helper, move it to a stable location, and replace the placeholder below with its reviewed absolute path. UsageGrid cannot supply a path until one exists.")
+            Text("When running from this source repository, build the helper from the repository root:")
+            copyableBlock(
+                ClaudeOnboardingContent.repositoryBuildCommand,
+                buttonTitle: "Copy helper build command",
+                accessibilityLabel: "Copy Claude capture helper build command"
+            )
+            copyableBlock(
+                ClaudeOnboardingContent.configurationTemplate,
+                buttonTitle: "Copy configuration template",
+                accessibilityLabel: "Copy Claude status-line configuration template"
+            )
+
+            Text("Keep an existing status line")
+                .fontWeight(.semibold)
+            Text("Claude Code supports one status-line command. Back up the existing setting and use a reviewed wrapper that sends the in-memory input to both commands. Never overwrite the existing command silently.")
+            copyableBlock(
+                ClaudeOnboardingContent.coexistenceWrapperTemplate,
+                buttonTitle: "Copy coexistence wrapper",
+                accessibilityLabel: "Copy Claude status-line coexistence wrapper template"
+            )
+
+            Text("Remove safely")
+                .fontWeight(.semibold)
+            Text("Restore the exact previous statusLine setting, or remove only the setting you added. Do not delete unrelated Claude settings. The local UsageGrid snapshot can be removed separately.")
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func copyableBlock(_ value: String, buttonTitle: String, accessibilityLabel: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ScrollView(.horizontal) {
+                Text(value)
+                    .font(.system(.caption2, design: .monospaced))
+                    .textSelection(.enabled)
+            }
+            Button(buttonTitle) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(value, forType: .string)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .accessibilityLabel(accessibilityLabel)
+        }
     }
 }
 
@@ -286,9 +419,23 @@ enum PopupSizing {
     }
 }
 
-private enum SelectedProvider {
+enum SelectedProvider {
     case codex
     case claude
+
+    var selectorTitle: String {
+        switch self {
+        case .codex: "Codex"
+        case .claude: "Claude — Experimental"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .codex: "Codex provider"
+        case .claude: "Claude provider, experimental passive snapshot"
+        }
+    }
 }
 
 enum PopupPage {
@@ -424,6 +571,8 @@ final class CodexRefreshCoordinator {
 struct CodexWindowRow: View {
     let window: CodexUsageWindow
     let palette: UsageThemePalette
+    var providerName = "Codex"
+    var freshnessDescription: String?
 
     private var usedCells: Int {
         min(100, max(0, Int(window.usedPercentage.rounded())))
@@ -445,10 +594,6 @@ struct CodexWindowRow: View {
                     usageCell(filled: index < usedCells)
                 }
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Codex \(window.label) usage")
-                .accessibilityValue("\(Int(window.usedPercentage.rounded())) percent used")
-
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("const")
                     .foregroundStyle(palette.syntax)
@@ -467,6 +612,17 @@ struct CodexWindowRow: View {
             .monospacedDigit()
         }
         .fontDesign(.monospaced)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(UsageWindowAccessibilityPresentation.make(
+            providerName: providerName,
+            window: window,
+            freshnessDescription: freshnessDescription
+        ).label)
+        .accessibilityValue(UsageWindowAccessibilityPresentation.make(
+            providerName: providerName,
+            window: window,
+            freshnessDescription: freshnessDescription
+        ).value)
     }
 
     @ViewBuilder
@@ -482,5 +638,35 @@ struct CodexWindowRow: View {
             Circle().fill(color).aspectRatio(1, contentMode: .fit)
                 .shadow(color: filled && palette.usesGlow ? palette.accent.opacity(0.55) : .clear, radius: 3)
         }
+    }
+}
+
+struct UsageWindowAccessibilityPresentation: Equatable {
+    let label: String
+    let value: String
+
+    static func make(
+        providerName: String,
+        window: CodexUsageWindow,
+        freshnessDescription: String?
+    ) -> Self {
+        let percentage = min(100, max(0, Int(window.usedPercentage.rounded())))
+        var values = ["\(percentage) percent used", durationDescription(window.durationMinutes)]
+        values.append(window.resetsAt == nil ? "reset unavailable" : window.resetText)
+        if let freshnessDescription { values.append(freshnessDescription) }
+        return Self(label: "\(providerName), \(window.label) usage", value: values.joined(separator: ", "))
+    }
+
+    private static func durationDescription(_ minutes: Int) -> String {
+        guard minutes > 0 else { return "window duration unavailable" }
+        if minutes.isMultiple(of: 1_440) {
+            let days = minutes / 1_440
+            return "\(days) day\(days == 1 ? "" : "s") window"
+        }
+        if minutes.isMultiple(of: 60) {
+            let hours = minutes / 60
+            return "\(hours) hour\(hours == 1 ? "" : "s") window"
+        }
+        return "\(minutes) minute\(minutes == 1 ? "" : "s") window"
     }
 }

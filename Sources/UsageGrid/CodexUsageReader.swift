@@ -1,24 +1,11 @@
 import Darwin
 import Foundation
 import OSLog
+#if SWIFT_PACKAGE
+import UsageGridClaudeCore
+#endif
 
-struct CodexUsageWindow {
-    let id: String
-    let label: String
-    let usedPercentage: Double
-    let resetText: String
-    let durationMinutes: Int
-    let resetsAt: Date?
-
-    init(id: String, label: String, usedPercentage: Double, resetText: String, durationMinutes: Int, resetsAt: Date? = nil) {
-        self.id = id
-        self.label = label
-        self.usedPercentage = usedPercentage
-        self.resetText = resetText
-        self.durationMinutes = durationMinutes
-        self.resetsAt = resetsAt
-    }
-}
+typealias CodexUsageWindow = QuotaWindow
 
 enum CodexUsageReadError: Equatable {
     case executableNotFound, processLaunchFailed, initializationTimedOut, initializationFailed

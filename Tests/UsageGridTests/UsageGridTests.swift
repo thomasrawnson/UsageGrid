@@ -5,6 +5,7 @@ import SwiftUI
 import AppKit
 import UserNotifications
 @testable import UsageGrid
+@testable import UsageGridClaudeCore
 
 private final class TestProLicenseStorage: ProLicenseCredentialStoring, @unchecked Sendable {
     var credential: ProLicenseCredential?
@@ -87,6 +88,136 @@ private let testLicenseIdentity = ProLicenseIdentity(storeID: 485681, productID:
 private let testLicenseCredential = ProLicenseCredential(licenseKey: "TEST-SECRET-LICENCE", activationID: "test-activation")
 private var testLicenseVerification: ProLicenseVerification {
     ProLicenseVerification(credential: testLicenseCredential, identity: testLicenseIdentity)
+}
+
+@Test func claudeStatusLineDecodesOnlySupportedQuotaFields() throws {
+    let captured = Date(timeIntervalSince1970: 2_000)
+    let data = Data(#"{"session_id":"private","transcript_path":"/private/transcript","workspace":{"current_dir":"/private/repo"},"account_id":"private","version":"2.1.90","rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":5000},"seven_day":{"used_percentage":41.2,"resets_at":9000},"spend_limit":{"used_usd":12}}}"#.utf8)
+    let snapshot = try ClaudeStatusLineDecoder.decode(data, capturedAt: captured)
+
+    #expect(snapshot.sourceVersion == "2.1.90")
+    #expect(snapshot.capturedAt == captured)
+    #expect(snapshot.measurementObservedAt == captured)
+    #expect(snapshot.windows.map(\.id) == ["five_hour", "seven_day"])
+    #expect(snapshot.windows.map(\.usedPercentage) == [23.5, 41.2])
+
+    let encoded = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
+    for forbidden in ["session_id", "private", "transcript", "workspace", "account_id", "spend_limit"] {
+        #expect(!encoded.contains(forbidden))
+    }
+}
+
+@Test func claudeStatusLinePreservesMeasurementFreshnessForIdenticalPayloads() throws {
+    let data = Data(#"{"version":"2.1.90","rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":5000}}}"#.utf8)
+    let first = try ClaudeStatusLineDecoder.decode(data, capturedAt: Date(timeIntervalSince1970: 1_000))
+    let repeated = try ClaudeStatusLineDecoder.decode(data, capturedAt: Date(timeIntervalSince1970: 1_100), previous: first)
+    #expect(repeated.capturedAt == Date(timeIntervalSince1970: 1_100))
+    #expect(repeated.measurementObservedAt == first.measurementObservedAt)
+
+    let changedData = Data(#"{"version":"2.1.90","rate_limits":{"five_hour":{"used_percentage":24,"resets_at":5000}}}"#.utf8)
+    let changed = try ClaudeStatusLineDecoder.decode(changedData, capturedAt: Date(timeIntervalSince1970: 1_200), previous: repeated)
+    #expect(changed.measurementObservedAt == Date(timeIntervalSince1970: 1_200))
+}
+
+@Test func claudeStatusLineRejectsMalformedUnsupportedAndInvalidPayloads() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    #expect(throws: ClaudeStatusLineDecodeError.malformedJSON) {
+        try ClaudeStatusLineDecoder.decode(Data("not json".utf8), capturedAt: now)
+    }
+    #expect(throws: ClaudeStatusLineDecodeError.unsupportedPayload) {
+        try ClaudeStatusLineDecoder.decode(Data(#"{"version":"2.1.90"}"#.utf8), capturedAt: now)
+    }
+    #expect(throws: ClaudeStatusLineDecodeError.unsupportedPayload) {
+        try ClaudeStatusLineDecoder.decode(Data(#"{"rate_limits":{}}"#.utf8), capturedAt: now)
+    }
+    for invalid in [-1.0, 101.0] {
+        let data = Data("{\"rate_limits\":{\"five_hour\":{\"used_percentage\":\(invalid),\"resets_at\":5000}}}".utf8)
+        #expect(throws: ClaudeStatusLineDecodeError.invalidWindow) {
+            try ClaudeStatusLineDecoder.decode(data, capturedAt: now)
+        }
+    }
+    let wrongType = Data(#"{"rate_limits":{"five_hour":{"used_percentage":"23","resets_at":5000}}}"#.utf8)
+    #expect(throws: ClaudeStatusLineDecodeError.malformedJSON) {
+        try ClaudeStatusLineDecoder.decode(wrongType, capturedAt: now)
+    }
+}
+
+@Test func claudeSnapshotStoreWritesRestrictedSanitizedFile() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("nested/claude.json")
+    let store = ClaudeSnapshotStore(fileURL: file)
+    let input = Data(#"{"session_id":"must-not-persist","rate_limits":{"five_hour":{"used_percentage":12,"resets_at":5000}}}"#.utf8)
+    let snapshot = try store.capture(statusLineData: input, at: Date(timeIntervalSince1970: 1_000))
+    #expect(try store.load() == snapshot)
+
+    let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    let contents = try String(contentsOf: file, encoding: .utf8)
+    #expect(!contents.contains("must-not-persist"))
+    #expect(!contents.contains("session_id"))
+}
+
+@Test @MainActor func claudeCoordinatorClassifiesFreshStaleExpiredMissingAndCorrupt() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("claude.json")
+    let store = ClaudeSnapshotStore(fileURL: file)
+    var now = Date(timeIntervalSince1970: 1_000)
+    let coordinator = ClaudeUsageCoordinator(store: store, now: { now })
+
+    coordinator.refresh()
+    #expect(coordinator.availability == .missing)
+    let data = Data(#"{"rate_limits":{"five_hour":{"used_percentage":12,"resets_at":5000}}}"#.utf8)
+    _ = try store.capture(statusLineData: data, at: now)
+    coordinator.refresh()
+    #expect(coordinator.availability == .available)
+
+    now = Date(timeIntervalSince1970: 1_121)
+    coordinator.refresh()
+    #expect(coordinator.availability == .stale)
+    now = Date(timeIntervalSince1970: 5_001)
+    coordinator.refresh()
+    #expect(coordinator.availability == .expired)
+
+    try Data("broken".utf8).write(to: file)
+    coordinator.refresh()
+    #expect(coordinator.availability == .corrupt)
+}
+
+@Test func claudeMissingSnapshotPresentationIsHonestAboutIndistinguishableCauses() {
+    let message = ClaudeUsageAvailability.missing.message
+    #expect(message.contains("No snapshot has been received"))
+    #expect(message.contains("may not be configured"))
+    #expect(message.contains("may not have run"))
+    #expect(!message.contains("not installed"))
+    #expect(!message.contains("signed out"))
+}
+
+@Test func claudeCorruptUnsupportedStaleAndExpiredPresentationsAreActionable() {
+    #expect(ClaudeUsageAvailability.corrupt.message.contains("cannot be read"))
+    #expect(ClaudeUsageAvailability.corrupt.message.contains("replacement"))
+    #expect(ClaudeUsageAvailability.unsupported.message.contains("not supported"))
+    #expect(ClaudeUsageAvailability.unsupported.message.contains("matching capture helper"))
+    #expect(ClaudeUsageAvailability.stale.message.contains("may be stale"))
+    #expect(ClaudeUsageAvailability.expired.message.contains("expired"))
+}
+
+@Test func claudeOnboardingTemplatesRequireReviewedPathsAndPreserveExistingStatusLine() {
+    #expect(ClaudeOnboardingContent.repositoryBuildCommand == "swift build -c release --product UsageGridClaudeCapture")
+    #expect(ClaudeOnboardingContent.configurationTemplate.contains("/absolute/path/to/UsageGridClaudeCapture"))
+    #expect(ClaudeOnboardingContent.coexistenceWrapperTemplate.contains("/absolute/path/to/existing-status-line"))
+    #expect(ClaudeOnboardingContent.coexistenceWrapperTemplate.contains("input=$(cat)"))
+    #expect(ClaudeOnboardingContent.undetectableState.contains("cannot determine"))
+    #expect(ClaudeOnboardingContent.undetectableState.contains("installed, authenticated, or configured"))
+}
+
+@Test @MainActor func claudeSetupGuideRendersWithoutChangingCodexPresentation() {
+    let renderer = ImageRenderer(content: ClaudeSetupGuideView().frame(width: 320))
+    renderer.proposedSize = ProposedViewSize(width: 320, height: 900)
+    #expect(renderer.cgImage != nil)
+    #expect(SelectedProvider.codex.selectorTitle == "Codex")
+    #expect(SelectedProvider.codex.accessibilityLabel == "Codex provider")
 }
 
 @Test @MainActor func productionLicenceFoundationRemainsUnavailableAndUnentitled() {
@@ -1058,6 +1189,47 @@ actor TestHistoryStore: UsageHistoryPersisting {
     #expect(stale.accessibilityLabel.contains("stale"))
     #expect(recovered.text == "42% used")
     #expect(recovered.accessibilityLabel.contains("fresh"))
+}
+
+@Test func providerSelectorLabelsClaudeAsExperimentalAndPreservesCodexPresentation() {
+    #expect(SelectedProvider.codex.selectorTitle == "Codex")
+    #expect(SelectedProvider.codex.accessibilityLabel == "Codex provider")
+    #expect(SelectedProvider.claude.selectorTitle == "Claude — Experimental")
+    #expect(SelectedProvider.claude.accessibilityLabel.contains("experimental passive snapshot"))
+}
+
+@Test func usageWindowAccessibilityUsesActualProviderAndCompleteWindowDetails() {
+    let window = CodexUsageWindow(
+        id: "seven_day", label: "Weekly limit", usedPercentage: 41.6,
+        resetText: "Resets in 2d", durationMinutes: 10_080,
+        resetsAt: Date(timeIntervalSince1970: 20_000)
+    )
+    let presentation = UsageWindowAccessibilityPresentation.make(
+        providerName: "Claude", window: window, freshnessDescription: "stale measurement"
+    )
+
+    #expect(presentation.label == "Claude, Weekly limit usage")
+    #expect(!presentation.label.contains("Codex"))
+    #expect(presentation.value.contains("42 percent used"))
+    #expect(presentation.value.contains("7 days window"))
+    #expect(presentation.value.contains("Resets in 2d"))
+    #expect(presentation.value.contains("stale measurement"))
+}
+
+@Test func usageWindowAccessibilityAnnouncesMissingMetadataAsUnavailableNotZero() {
+    let window = CodexUsageWindow(
+        id: "primary", label: "Primary limit", usedPercentage: 23,
+        resetText: "Reset unavailable", durationMinutes: 0, resetsAt: nil
+    )
+    let presentation = UsageWindowAccessibilityPresentation.make(
+        providerName: "Codex", window: window, freshnessDescription: nil
+    )
+
+    #expect(presentation.label == "Codex, Primary limit usage")
+    #expect(presentation.value.contains("23 percent used"))
+    #expect(presentation.value.contains("window duration unavailable"))
+    #expect(presentation.value.contains("reset unavailable"))
+    #expect(!presentation.value.contains("0 percent"))
 }
 
 @Test func menuBarPreferencesPersistInIsolatedDefaults() throws {

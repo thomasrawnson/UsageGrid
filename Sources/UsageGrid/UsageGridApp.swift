@@ -21,6 +21,7 @@ final class UsageGridAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
 struct UsageGridApp: App {
     @NSApplicationDelegateAdaptor(UsageGridAppDelegate.self) private var appDelegate
     @State private var codex = CodexRefreshCoordinator()
+    @State private var claude = ClaudeUsageCoordinator()
     @State private var menuBarPreferences = MenuBarPreferences()
     @State private var usageAlerts: UsageAlertController
     @State private var proAccess: ProAccessController
@@ -51,7 +52,7 @@ struct UsageGridApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(codex: codex, alerts: usageAlerts, themePreferences: themePreferences, history: usageHistory, proAccess: proAccess)
+            MenuBarView(codex: codex, claude: claude, alerts: usageAlerts, themePreferences: themePreferences, history: usageHistory, proAccess: proAccess)
         } label: {
             let presentation = MenuBarUsagePresentation.make(
                 mode: menuBarPreferences.displayMode,
