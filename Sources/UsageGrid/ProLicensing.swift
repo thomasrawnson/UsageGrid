@@ -20,7 +20,10 @@ struct ProLicenseVerification: Equatable, Sendable {
 }
 
 enum ProLicenseServiceError: Error, Equatable, Sendable {
-    case invalidOrRevoked, rejected, networkUnavailable, invalidResponse
+    case invalidOrRevoked, rejected, invalidLicense, activationLimitReached
+    case expired, revokedOrDisabled, networkUnavailable, timedOut
+    case invalidResponse, productMismatch, majorVersionMismatch, instanceMismatch
+    case configurationUnavailable, operationInProgress
 }
 
 protocol ProLicenseServicing: Sendable {
@@ -94,6 +97,60 @@ struct KeychainProLicenseCredentialStore: ProLicenseCredentialStoring {
     enum KeychainStoreError: Error { case operationFailed, invalidStoredValue }
 }
 
+protocol ProLicenseInstanceIdentifying: Sendable {
+    func instanceName() throws -> String
+}
+
+struct KeychainProLicenseInstanceIdentity: ProLicenseInstanceIdentifying {
+    static let service = "com.plutonightlabs.UsageGrid.license"
+    static let account = "lemonsqueezy.installation-id"
+
+    func instanceName() throws -> String {
+        var query = baseQuery
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let identifier: String
+        if status == errSecSuccess, let data = result as? Data,
+           let stored = String(data: data, encoding: .utf8), !stored.isEmpty {
+            identifier = stored
+        } else if status == errSecItemNotFound {
+            identifier = UUID().uuidString.lowercased()
+            var item = baseQuery
+            item[kSecValueData as String] = Data(identifier.utf8)
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else {
+                throw ProLicenseServiceError.configurationUnavailable
+            }
+        } else {
+            throw ProLicenseServiceError.configurationUnavailable
+        }
+        return "UsageGrid Mac \(identifier.prefix(12))"
+    }
+
+    private var baseQuery: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: Self.service,
+         kSecAttrAccount as String: Self.account]
+    }
+}
+
+struct ProductionProLicenseConfiguration: Equatable, Sendable {
+    let identity: ProLicenseIdentity
+    let licensedMajorVersion: Int
+    let requestTimeout: TimeInterval
+
+    init(identity: ProLicenseIdentity, licensedMajorVersion: Int, requestTimeout: TimeInterval = 15) {
+        self.identity = identity
+        self.licensedMajorVersion = licensedMajorVersion
+        self.requestTimeout = min(max(requestTimeout, 1), 30)
+    }
+
+    // Intentionally incomplete until owner-approved live Lemon Squeezy IDs exist.
+    static let current: ProductionProLicenseConfiguration? = nil
+}
+
 struct UnavailableProLicenseService: ProLicenseServicing {
     func activate(licenseKey: String) async throws -> ProLicenseVerification { throw ProLicenseServiceError.networkUnavailable }
     func validate(credential: ProLicenseCredential) async throws -> ProLicenseVerification { throw ProLicenseServiceError.networkUnavailable }
@@ -108,16 +165,26 @@ struct UnavailableProLicenseCredentialStore: ProLicenseCredentialStoring {
 }
 
 enum ProLicenseFailure: Equatable {
-    case invalidEntry, invalidOrRevoked, networkUnavailable, invalidResponse, productMismatch
+    case invalidEntry, invalidOrRevoked, activationLimitReached, expired, revokedOrDisabled
+    case networkUnavailable, timedOut, invalidResponse, productMismatch, majorVersionMismatch, instanceMismatch
+    case configurationUnavailable, operationInProgress
     case storageFailedAfterActivation, storageFailed, deactivationFailed
 
     var userMessage: String {
         switch self {
         case .invalidEntry: "Enter a licence key."
         case .invalidOrRevoked: "The licence is invalid, expired, disabled, or no longer active."
+        case .activationLimitReached: "This licence is already active on three Macs. Deactivate another Mac before trying again."
+        case .expired: "This licence has expired."
+        case .revokedOrDisabled: "This licence is disabled or no longer active."
         case .networkUnavailable: "Couldn’t reach Lemon Squeezy. Check the connection and try again."
+        case .timedOut: "Licence validation timed out. Check the connection and try again."
         case .invalidResponse: "Lemon Squeezy returned an unsupported response. Try again later."
-        case .productMismatch: "The licence does not match the configured UsageGrid Pro test product."
+        case .productMismatch: "The licence does not match this UsageGrid Pro product."
+        case .majorVersionMismatch: "This licence does not cover this UsageGrid major version."
+        case .instanceMismatch: "The licence activation does not match this stored Mac activation."
+        case .configurationUnavailable: "Production licensing is not configured in this build."
+        case .operationInProgress: "Another licence operation is already in progress."
         case .storageFailedAfterActivation: "Remote activation succeeded, but the credentials could not be stored. Retry secure storage; do not activate again."
         case .storageFailed: "The licence credentials could not be read or stored securely."
         case .deactivationFailed: "Deactivation was not confirmed. Credentials were retained so you can retry."
@@ -290,9 +357,18 @@ final class ProLicenseController {
     private static func failure(for error: Error) -> ProLicenseFailure {
         guard let value = error as? ProLicenseServiceError else { return .networkUnavailable }
         switch value {
-        case .invalidOrRevoked, .rejected: return ProLicenseFailure.invalidOrRevoked
+        case .invalidOrRevoked, .rejected, .invalidLicense: return ProLicenseFailure.invalidOrRevoked
+        case .activationLimitReached: return .activationLimitReached
+        case .expired: return .expired
+        case .revokedOrDisabled: return .revokedOrDisabled
         case .networkUnavailable: return ProLicenseFailure.networkUnavailable
+        case .timedOut: return .timedOut
         case .invalidResponse: return ProLicenseFailure.invalidResponse
+        case .productMismatch: return .productMismatch
+        case .majorVersionMismatch: return .majorVersionMismatch
+        case .instanceMismatch: return .instanceMismatch
+        case .configurationUnavailable: return .configurationUnavailable
+        case .operationInProgress: return .operationInProgress
         }
     }
 }
@@ -345,6 +421,7 @@ private extension ProLicenseOperation {
         switch self { case .activating: "Activating…"; case .validating: "Validating…"; case .deactivating: "Deactivating…" }
     }
 }
+#endif
 
 protocol ProLicenseHTTPTransporting: Sendable {
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse)
@@ -358,32 +435,59 @@ struct URLSessionProLicenseHTTPTransport: ProLicenseHTTPTransporting {
     }
 }
 
-struct LemonSqueezyTestLicenseService: ProLicenseServicing {
-    static let identity = ProLicenseIdentity(storeID: 485681, productID: 1395768, variantID: 2179685)
+private struct LemonSqueezyLicenseAPIClient: Sendable {
+    let expectedIdentity: ProLicenseIdentity
+    let instanceIdentity: any ProLicenseInstanceIdentifying
     private let transport: any ProLicenseHTTPTransporting
     private let baseURL = URL(string: "https://api.lemonsqueezy.com/v1/licenses")!
-    init(transport: any ProLicenseHTTPTransporting = URLSessionProLicenseHTTPTransport()) { self.transport = transport }
+    private let requestTimeout: TimeInterval
+
+    init(expectedIdentity: ProLicenseIdentity,
+         instanceIdentity: any ProLicenseInstanceIdentifying,
+         requestTimeout: TimeInterval,
+         transport: any ProLicenseHTTPTransporting) {
+        self.expectedIdentity = expectedIdentity
+        self.instanceIdentity = instanceIdentity
+        self.requestTimeout = requestTimeout
+        self.transport = transport
+    }
 
     func activate(licenseKey: String) async throws -> ProLicenseVerification {
-        let response: LicenseResponse = try await post(path: "activate", fields: ["license_key": licenseKey, "instance_name": "UsageGrid Debug on macOS"])
+        let response: LicenseResponse = try await post(path: "activate", fields: [
+            "license_key": licenseKey,
+            "instance_name": try instanceIdentity.instanceName()
+        ])
         guard response.activated == true else { throw response.failure }
+        try verify(response.identity)
+        try response.requireActiveStatus()
         guard let instanceID = response.instance?.id else { throw ProLicenseServiceError.invalidResponse }
-        return ProLicenseVerification(credential: ProLicenseCredential(licenseKey: licenseKey, activationID: instanceID), identity: try response.identity)
+        return ProLicenseVerification(credential: ProLicenseCredential(licenseKey: licenseKey, activationID: instanceID), identity: expectedIdentity)
     }
+
     func validate(credential: ProLicenseCredential) async throws -> ProLicenseVerification {
         let response: LicenseResponse = try await post(path: "validate", fields: ["license_key": credential.licenseKey, "instance_id": credential.activationID])
         guard response.valid == true else { throw response.failure }
-        guard response.instance?.id == credential.activationID else { throw ProLicenseServiceError.invalidResponse }
-        return ProLicenseVerification(credential: credential, identity: try response.identity)
+        try verify(response.identity)
+        try response.requireActiveStatus()
+        guard response.instance?.id == credential.activationID else { throw ProLicenseServiceError.instanceMismatch }
+        return ProLicenseVerification(credential: credential, identity: expectedIdentity)
     }
+
     func deactivate(credential: ProLicenseCredential) async throws -> ProLicenseIdentity {
         let response: LicenseResponse = try await post(path: "deactivate", fields: ["license_key": credential.licenseKey, "instance_id": credential.activationID])
         guard response.deactivated == true else { throw response.failure }
-        return try response.identity
+        try verify(response.identity)
+        return expectedIdentity
     }
+
+    private func verify(_ identity: ProLicenseIdentity) throws {
+        guard identity == expectedIdentity else { throw ProLicenseServiceError.productMismatch }
+    }
+
     private func post<Response: Decodable>(path: String, fields: [String: String]) async throws -> Response {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
+        request.timeoutInterval = requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = fields.sorted(by: { $0.key < $1.key })
@@ -391,8 +495,13 @@ struct LemonSqueezyTestLicenseService: ProLicenseServicing {
         let data: Data, response: HTTPURLResponse
         do { (data, response) = try await transport.data(for: request) }
         catch is CancellationError { throw CancellationError() }
+        catch let error as URLError where error.code == .timedOut { throw ProLicenseServiceError.timedOut }
         catch { throw ProLicenseServiceError.networkUnavailable }
-        guard (200..<300).contains(response.statusCode) else { throw ProLicenseServiceError.networkUnavailable }
+        guard (200..<300).contains(response.statusCode) else {
+            if response.statusCode == 408 || response.statusCode == 504 { throw ProLicenseServiceError.timedOut }
+            if let decoded = try? JSONDecoder().decode(LicenseResponse.self, from: data) { throw decoded.failure }
+            throw ProLicenseServiceError.invalidResponse
+        }
         do { return try JSONDecoder().decode(Response.self, from: data) }
         catch { throw ProLicenseServiceError.invalidResponse }
     }
@@ -401,6 +510,98 @@ struct LemonSqueezyTestLicenseService: ProLicenseServicing {
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
     }
 }
+
+actor LemonSqueezyProductionLicenseService: ProLicenseServicing {
+    private let configuration: ProductionProLicenseConfiguration?
+    private let runningMajorVersion: Int
+    private let client: LemonSqueezyLicenseAPIClient?
+    private var operationInProgress = false
+
+    init(configuration: ProductionProLicenseConfiguration? = .current,
+         runningMajorVersion: Int,
+         instanceIdentity: any ProLicenseInstanceIdentifying = KeychainProLicenseInstanceIdentity(),
+         transport: any ProLicenseHTTPTransporting = URLSessionProLicenseHTTPTransport()) {
+        self.configuration = configuration
+        self.runningMajorVersion = runningMajorVersion
+        if let configuration {
+            client = LemonSqueezyLicenseAPIClient(
+                expectedIdentity: configuration.identity,
+                instanceIdentity: instanceIdentity,
+                requestTimeout: configuration.requestTimeout,
+                transport: transport
+            )
+        } else {
+            client = nil
+        }
+    }
+
+    nonisolated static func runningMajorVersion(bundle: Bundle = .main) -> Int? {
+        guard let raw = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+              let first = raw.split(separator: ".").first else { return nil }
+        return Int(first)
+    }
+
+    func activate(licenseKey: String) async throws -> ProLicenseVerification {
+        try await perform { try await $0.activate(licenseKey: licenseKey) }
+    }
+
+    func validate(credential: ProLicenseCredential) async throws -> ProLicenseVerification {
+        try await perform { try await $0.validate(credential: credential) }
+    }
+
+    func deactivate(credential: ProLicenseCredential) async throws -> ProLicenseIdentity {
+        try await perform { try await $0.deactivate(credential: credential) }
+    }
+
+    private func perform<T: Sendable>(_ body: (LemonSqueezyLicenseAPIClient) async throws -> T) async throws -> T {
+        guard let configuration, let client else { throw ProLicenseServiceError.configurationUnavailable }
+        guard configuration.licensedMajorVersion == runningMajorVersion else { throw ProLicenseServiceError.majorVersionMismatch }
+        guard !operationInProgress else { throw ProLicenseServiceError.operationInProgress }
+        operationInProgress = true
+        defer { operationInProgress = false }
+        return try await body(client)
+    }
+}
+
+#if DEBUG
+private struct DebugProLicenseInstanceIdentity: ProLicenseInstanceIdentifying {
+    func instanceName() -> String { "UsageGrid Debug on macOS" }
+}
+
+struct LemonSqueezyTestLicenseService: ProLicenseServicing {
+    static let identity = ProLicenseIdentity(storeID: 485681, productID: 1395768, variantID: 2179685)
+    private let client: LemonSqueezyLicenseAPIClient
+
+    init(transport: any ProLicenseHTTPTransporting = URLSessionProLicenseHTTPTransport()) {
+        client = LemonSqueezyLicenseAPIClient(
+            expectedIdentity: Self.identity,
+            instanceIdentity: DebugProLicenseInstanceIdentity(),
+            requestTimeout: 15,
+            transport: transport
+        )
+    }
+
+    func activate(licenseKey: String) async throws -> ProLicenseVerification {
+        do { return try await client.activate(licenseKey: licenseKey) }
+        catch { throw Self.legacyError(error) }
+    }
+    func validate(credential: ProLicenseCredential) async throws -> ProLicenseVerification {
+        do { return try await client.validate(credential: credential) }
+        catch { throw Self.legacyError(error) }
+    }
+    func deactivate(credential: ProLicenseCredential) async throws -> ProLicenseIdentity {
+        do { return try await client.deactivate(credential: credential) }
+        catch { throw Self.legacyError(error) }
+    }
+
+    private static func legacyError(_ error: Error) -> Error {
+        switch error as? ProLicenseServiceError {
+        case .expired, .revokedOrDisabled, .invalidLicense: ProLicenseServiceError.invalidOrRevoked
+        default: error
+        }
+    }
+}
+#endif
 
 private struct LicenseResponse: Decodable {
     let activated: Bool?, valid: Bool?, deactivated: Bool?, error: String?
@@ -426,7 +627,24 @@ private struct LicenseResponse: Decodable {
         }
     }
     var failure: ProLicenseServiceError {
-        switch licenseKey?.status { case "disabled", "expired", "inactive": .invalidOrRevoked; default: .rejected }
+        let normalizedError = error?.lowercased() ?? ""
+        if normalizedError.contains("activation limit") { return .activationLimitReached }
+        switch licenseKey?.status {
+        case "expired": return .expired
+        case "disabled": return .revokedOrDisabled
+        case "inactive": return .invalidLicense
+        case "active": return normalizedError.isEmpty ? .invalidResponse : .invalidLicense
+        default: return normalizedError.isEmpty ? .invalidResponse : .invalidLicense
+        }
+    }
+
+    func requireActiveStatus() throws {
+        switch licenseKey?.status {
+        case "active": return
+        case "expired": throw ProLicenseServiceError.expired
+        case "disabled": throw ProLicenseServiceError.revokedOrDisabled
+        case "inactive": throw ProLicenseServiceError.invalidLicense
+        default: throw ProLicenseServiceError.invalidResponse
+        }
     }
 }
-#endif

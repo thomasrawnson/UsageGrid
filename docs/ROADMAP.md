@@ -121,20 +121,25 @@ Gate: useful Pro behavior without billing. Beta feedback must confirm prediction
 
 Current commercial-foundation UI: Settings is organised into native General, Appearance, Usage & History, Alerts, and Help tabs. A single compact comparison reflects the implemented boundary: live Codex usage, menu-bar display, Programming/Professional themes, the primary threshold alert, and privacy-safe support diagnostics remain Free; premium themes, real history/session views, the secondary threshold alert, and confirmed reset notifications require effective Pro access. Local history recording remains explicit opt-in. Debug simulation is clearly separate from a future verified purchase, and production access remains unchanged. Purchasing is not yet available. Support diagnostics use an explicit field allowlist and fixed error categories; they never expose raw provider errors, paths, identifiers, usage values, history samples, or credentials.
 
-Agreed direction: direct distribution of a signed/notarised app, a one-off UsageGrid Pro purchase through Lemon Squeezy hosted checkout, licence-key activation, and no separate UsageGrid account initially. Price/currency, permitted Mac count, major-version/update entitlement, and offline validation/grace duration remain undecided. See [PRO_LICENSING.md](PRO_LICENSING.md).
+Approved policy: direct distribution outside the Mac App Store as a Developer ID signed and notarised app; a **£9.99 GBP one-time** UsageGrid Pro purchase through Lemon Squeezy hosted checkout; licence-key activation on no more than **three Macs**; entitlement to the purchased major version, with future major versions potentially requiring a new purchase; and a **seven-day offline validation grace period**. No separate UsageGrid account is planned initially. See [PRO_LICENSING.md](PRO_LICENSING.md) for the authoritative lifecycle and failure rules.
 
 Implementation stages:
 
 - **UG-P01:** licensing model, Keychain storage boundary, isolated disabled production activation UI, and injected lifecycle tests.
 - **UG-P02:** implemented a Debug-only Lemon Squeezy test-mode activation/validation/deactivation path with exact Store `485681`, Product `1395768`, and Variant `2179685` matching, dedicated test Keychain storage, online restart validation, and shared access integration. Release remains Free and contains no test configuration or controls.
-- **UG-P03:** live configuration and signed-artifact purchase testing after commercial policy decisions.
+- **UG-P03A:** production licensing policy, including commercial terms, lifecycle, offline rules, major-version eligibility, recovery, refund/revocation, failure handling, and the P03B–P03F checklist. Documentation only.
+- **UG-P03B:** production Lemon Squeezy service, immutable identity/major-version eligibility, bounded network behavior, and safe instance identity implemented with injected tests. Live IDs remain explicitly absent, production activation fails closed, and Release access remains disabled pending approved configuration and later slices.
+- **UG-P03C:** secure offline-entitlement cache, seven-day grace, clock rollback/corruption handling, revalidation/retry behavior, and deterministic tests.
+- **UG-P03D:** production hosted-checkout and licence-management UI, customer messages, accessibility, recovery, and transfer guidance.
+- **UG-P03E:** controlled live Lemon Squeezy configuration and purchase/activation/three-Mac/transfer/reinstall/refund/revocation verification.
+- **UG-P03F:** Developer ID signed and notarised release candidate, clean-Mac lifecycle validation, Release inspection, and owner approval.
 
-Tasks: centralized verified entitlement; hosted purchase/recovery UI; approved offline verification policy; release/debug separation; clear privacy and upgrade copy. Use Lemon Squeezy’s client-safe licensing flow without building a bespoke UsageGrid account server or embedding merchant API secrets.
+Tasks: centralized verified entitlement; hosted purchase/recovery UI; the approved seven-day offline policy; immutable major-version eligibility; release/debug separation; clear privacy and upgrade copy. Use Lemon Squeezy’s client-safe licensing flow without building a bespoke UsageGrid account server or embedding merchant API secrets.
 
 Acceptance:
 
 - Test-mode purchase grants Pro only after valid verification; cancellation/failure never unlocks it.
-- Debug test activation, restart validation, deactivation, identity mismatch, outage and revocation behavior are covered; production reinstall recovery and offline grace remain UG-P03 policy work.
+- Debug test activation, restart validation, deactivation, identity mismatch, outage and revocation behavior are covered. Production reinstall recovery, seven-day grace, clock/cache safety, three-Mac enforcement, and major-version eligibility require UG-P03B–UG-P03F implementation and evidence.
 - Free core remains usable; Pro preview never permanently unlocks a theme.
 - Non-release mock unlock paths are absent from production builds.
 - Upgrade text lists shipped Pro features only. Codex and Claude access are explicitly Free; token/session breakdown and “all future services” are not sold as guarantees.

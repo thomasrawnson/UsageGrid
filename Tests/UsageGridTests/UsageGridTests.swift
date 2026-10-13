@@ -355,6 +355,201 @@ private actor TestLicenseHTTPTransport: ProLicenseHTTPTransporting {
         #expect(error as? ProLicenseServiceError == .invalidResponse)
     }
 }
+
+private struct FixedProLicenseInstanceIdentity: ProLicenseInstanceIdentifying {
+    let value: String
+    func instanceName() -> String { value }
+}
+
+private actor ProductionLicenseHTTPTransport: ProLicenseHTTPTransporting {
+    enum Result: Sendable {
+        case response(String, Int)
+        case failure(URLError.Code)
+    }
+
+    private let result: Result
+    private let delay: Duration?
+    private(set) var requests: [URLRequest] = []
+
+    init(_ result: Result, delay: Duration? = nil) {
+        self.result = result
+        self.delay = delay
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests.append(request)
+        if let delay { try await Task.sleep(for: delay) }
+        switch result {
+        case .response(let json, let status):
+            return (Data(json.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+        case .failure(let code):
+            throw URLError(code)
+        }
+    }
+
+    func requestCount() -> Int { requests.count }
+    func firstRequest() -> URLRequest? { requests.first }
+}
+
+private let productionIdentity = ProLicenseIdentity(storeID: 100, productID: 200, variantID: 300)
+private let productionConfiguration = ProductionProLicenseConfiguration(
+    identity: productionIdentity,
+    licensedMajorVersion: 1,
+    requestTimeout: 4
+)
+private let productionCredential = ProLicenseCredential(licenseKey: "PRIVATE-PRODUCTION-FIXTURE", activationID: "production-instance")
+
+private func productionService(
+    json: String,
+    status: Int = 200,
+    runningMajorVersion: Int = 1,
+    delay: Duration? = nil
+) -> (LemonSqueezyProductionLicenseService, ProductionLicenseHTTPTransport) {
+    let transport = ProductionLicenseHTTPTransport(.response(json, status), delay: delay)
+    return (
+        LemonSqueezyProductionLicenseService(
+            configuration: productionConfiguration,
+            runningMajorVersion: runningMajorVersion,
+            instanceIdentity: FixedProLicenseInstanceIdentity(value: "UsageGrid Mac stable-fixture"),
+            transport: transport
+        ),
+        transport
+    )
+}
+
+private func expectProductionLicenseError(
+    _ expected: ProLicenseServiceError,
+    operation: () async throws -> Void
+) async {
+    do {
+        try await operation()
+        Issue.record("Expected production licensing error \(expected)")
+    } catch {
+        #expect(error as? ProLicenseServiceError == expected)
+    }
+}
+
+@Test func productionLicenseConfigurationIsIncompleteUntilLiveIDsAreApproved() async {
+    #expect(ProductionProLicenseConfiguration.current == nil)
+    let service = LemonSqueezyProductionLicenseService(configuration: nil, runningMajorVersion: 1)
+    await expectProductionLicenseError(.configurationUnavailable) {
+        _ = try await service.activate(licenseKey: productionCredential.licenseKey)
+    }
+}
+
+@Test func productionLicenseActivationValidationAndDeactivationUseOfficialContracts() async throws {
+    let activation = productionService(json: """
+    {"activated":true,"license_key":{"status":"active"},"instance":{"id":"production-instance"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
+    """)
+    let activated = try await activation.0.activate(licenseKey: productionCredential.licenseKey)
+    #expect(activated == ProLicenseVerification(credential: productionCredential, identity: productionIdentity))
+    let activationRequest = await activation.1.firstRequest()
+    #expect(activationRequest?.timeoutInterval == 4)
+    #expect(String(data: activationRequest?.httpBody ?? Data(), encoding: .utf8)?.contains("instance_name=UsageGrid%20Mac%20stable-fixture") == true)
+
+    let validation = productionService(json: """
+    {"valid":true,"license_key":{"status":"active"},"instance":{"id":"production-instance"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
+    """)
+    #expect(try await validation.0.validate(credential: productionCredential) == activated)
+
+    let deactivation = productionService(json: """
+    {"deactivated":true,"license_key":{"status":"inactive"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
+    """)
+    #expect(try await deactivation.0.deactivate(credential: productionCredential) == productionIdentity)
+}
+
+@Test func productionLicenseRejectsWrongStoreProductAndVariant() async {
+    let mismatches = [(999, 200, 300), (100, 999, 300), (100, 200, 999)]
+    for mismatch in mismatches {
+        let value = productionService(json: """
+        {"valid":true,"license_key":{"status":"active"},"instance":{"id":"production-instance"},"meta":{"store_id":\(mismatch.0),"product_id":\(mismatch.1),"variant_id":\(mismatch.2)}}
+        """)
+        await expectProductionLicenseError(.productMismatch) {
+            _ = try await value.0.validate(credential: productionCredential)
+        }
+    }
+}
+
+@Test func productionLicenseRejectsWrongMajorWithoutNetworkRequest() async {
+    let value = productionService(json: "{}", runningMajorVersion: 2)
+    await expectProductionLicenseError(.majorVersionMismatch) {
+        _ = try await value.0.activate(licenseKey: productionCredential.licenseKey)
+    }
+    #expect(await value.1.requestCount() == 0)
+}
+
+@Test func productionLicenseRejectsInvalidInstanceActivationLimitAndRevocation() async {
+    let wrongInstance = productionService(json: """
+    {"valid":true,"license_key":{"status":"active"},"instance":{"id":"different-instance"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
+    """)
+    await expectProductionLicenseError(.instanceMismatch) {
+        _ = try await wrongInstance.0.validate(credential: productionCredential)
+    }
+
+    let limit = productionService(json: """
+    {"activated":false,"error":"This license key has reached the activation limit.","license_key":{"status":"active"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
+    """)
+    await expectProductionLicenseError(.activationLimitReached) {
+        _ = try await limit.0.activate(licenseKey: productionCredential.licenseKey)
+    }
+
+    let revoked = productionService(json: """
+    {"valid":false,"error":"private provider detail","license_key":{"status":"disabled"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
+    """)
+    await expectProductionLicenseError(.revokedOrDisabled) {
+        _ = try await revoked.0.validate(credential: productionCredential)
+    }
+}
+
+@Test func productionLicenseClassifiesTimeoutAndMalformedResponses() async {
+    let timeoutTransport = ProductionLicenseHTTPTransport(.failure(.timedOut))
+    let timeoutService = LemonSqueezyProductionLicenseService(
+        configuration: productionConfiguration,
+        runningMajorVersion: 1,
+        instanceIdentity: FixedProLicenseInstanceIdentity(value: "UsageGrid Mac stable-fixture"),
+        transport: timeoutTransport
+    )
+    await expectProductionLicenseError(.timedOut) {
+        _ = try await timeoutService.validate(credential: productionCredential)
+    }
+
+    let networkTransport = ProductionLicenseHTTPTransport(.failure(.notConnectedToInternet))
+    let networkService = LemonSqueezyProductionLicenseService(
+        configuration: productionConfiguration,
+        runningMajorVersion: 1,
+        instanceIdentity: FixedProLicenseInstanceIdentity(value: "UsageGrid Mac stable-fixture"),
+        transport: networkTransport
+    )
+    await expectProductionLicenseError(.networkUnavailable) {
+        _ = try await networkService.validate(credential: productionCredential)
+    }
+
+    let expired = productionService(json: """
+    {"valid":false,"error":"private provider detail","license_key":{"status":"expired"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
+    """)
+    await expectProductionLicenseError(.expired) {
+        _ = try await expired.0.validate(credential: productionCredential)
+    }
+
+    let malformed = productionService(json: "not-json")
+    await expectProductionLicenseError(.invalidResponse) {
+        _ = try await malformed.0.validate(credential: productionCredential)
+    }
+}
+
+@Test func productionLicenseSerializesConcurrentRequests() async throws {
+    let value = productionService(json: """
+    {"valid":true,"license_key":{"status":"active"},"instance":{"id":"production-instance"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
+    """, delay: .milliseconds(100))
+
+    let first = Task { try await value.0.validate(credential: productionCredential) }
+    while await value.1.requestCount() == 0 { await Task.yield() }
+    await expectProductionLicenseError(.operationInProgress) {
+        _ = try await value.0.validate(credential: productionCredential)
+    }
+    #expect(try await first.value.identity == productionIdentity)
+    #expect(await value.1.requestCount() == 1)
+}
 #endif
 
 @Test func supportDiagnosticsUsesOnlyAllowlistedSafeFields() {
