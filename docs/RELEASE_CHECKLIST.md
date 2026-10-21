@@ -8,7 +8,7 @@ Status: review pending. This checklist does not authorise publication.
 - [ ] Existing history and UserDefaults survive upgrade; unrelated Keychain entries and provider authentication remain untouched.
 - [ ] Codex setup and error states remain accurate. Claude remains labelled an experimental passive snapshot, including its local Refresh action and removal guide.
 - [ ] Settings, popup navigation, notifications, large text, keyboard access, and VoiceOver receive manual Mac checks.
-- [ ] App icon and included screenshot rights are confirmed or uncertain images are replaced/removed.
+- [x] Record owner-reported Codex generation for the app icon and retained screenshots, with evidence limits in ASSET_RIGHTS.md.
 - [ ] Git history and current files receive a final sensitive-data and third-party licence review.
 - [ ] README, privacy statements, MIT notice, and Pluto website listing agree with the tested build.
 - [ ] If distributing a binary, Developer ID signing, notarisation, packaged-app runtime, and clean-Mac installation are verified. Current ad hoc builds are local development artifacts only.

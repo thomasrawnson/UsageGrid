@@ -48,4 +48,4 @@ UsageGrid does not upload usage history, prompts, account identifiers, or provid
 
 ## Licence and contributions
 
-Code is licensed under the [MIT licence](LICENSE). Image rights remain under review; see [Asset Rights](docs/ASSET_RIGHTS.md). Do not assume redistribution permission for the icon or retained screenshots. Issues and pull requests are welcome after the repository is made public. Keep changes scoped, preserve local-data privacy and experimental-provider wording, and run swift test plus Debug and Release builds.
+Code is licensed under the [MIT licence](LICENSE). The owner reports that project imagery was generated with Codex for UsageGrid; the evidence and its limits are recorded in [Asset Rights](docs/ASSET_RIGHTS.md). Issues and pull requests are welcome after the repository is made public. Keep changes scoped, preserve local-data privacy and experimental-provider wording, and run swift test plus Debug and Release builds.

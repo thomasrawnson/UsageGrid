@@ -10,4 +10,4 @@ History recording is off by default and stores observation time, window type/dur
 
 Current themes: Programming, Professional, 90s Retro, Anime, Zen Forest, and Space. Legacy saved identifiers fall back to Programming. Theme previews are isolated sample data and do not change the saved selection. There are no paid themes or feature gates.
 
-Out of scope: cloud sync, hosted usage storage, scraping provider websites, credential extraction, unsupported quota inference, and additional provider capabilities without source evidence. App icon and rendered image redistribution rights require final review before publication.
+Out of scope: cloud sync, hosted usage storage, scraping provider websites, credential extraction, unsupported quota inference, and additional provider capabilities without source evidence. The owner-reported provenance and limits of the app icon and rendered images are documented in ASSET_RIGHTS.md.
