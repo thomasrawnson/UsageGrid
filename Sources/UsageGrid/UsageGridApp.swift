@@ -24,27 +24,11 @@ struct UsageGridApp: App {
     @State private var claude = ClaudeUsageCoordinator()
     @State private var menuBarPreferences = MenuBarPreferences()
     @State private var usageAlerts: UsageAlertController
-    @State private var proAccess: ProAccessController
     @State private var themePreferences: ThemePreferences
     @State private var usageHistory = UsageHistoryController()
-    #if DEBUG
-    @State private var testLicense: ProLicenseController
-    #endif
-
     init() {
-        let access = ProAccessController()
-        _proAccess = State(initialValue: access)
-        _themePreferences = State(initialValue: ThemePreferences(access: access))
-        _usageAlerts = State(initialValue: UsageAlertController(hasEffectiveProAccess: { access.effectiveAccess.hasProEntitlement }))
-        #if DEBUG
-        _testLicense = State(initialValue: ProLicenseController(
-            service: LemonSqueezyTestLicenseService(),
-            storage: KeychainProLicenseCredentialStore.testMode,
-            expectedIdentity: LemonSqueezyTestLicenseService.identity,
-            activationAvailable: true,
-            entitlementChanged: { access.setVerifiedTestLicense($0) }
-        ))
-        #endif
+        _themePreferences = State(initialValue: ThemePreferences())
+        _usageAlerts = State(initialValue: UsageAlertController())
         #if DEBUG && !SWIFT_PACKAGE
         assert(Bundle.main.bundleIdentifier == "com.plutonightlabs.UsageGrid")
         #endif
@@ -52,7 +36,7 @@ struct UsageGridApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(codex: codex, claude: claude, alerts: usageAlerts, themePreferences: themePreferences, history: usageHistory, proAccess: proAccess)
+            MenuBarView(codex: codex, claude: claude, alerts: usageAlerts, themePreferences: themePreferences, history: usageHistory)
         } label: {
             let presentation = MenuBarUsagePresentation.make(
                 mode: menuBarPreferences.displayMode,
@@ -70,25 +54,11 @@ struct UsageGridApp: App {
                 }
             }
             .accessibilityLabel(presentation.accessibilityLabel)
-            #if DEBUG
-            .task { testLicense.validateStoredCredential(initial: true) }
-            #endif
         }
         .menuBarExtraStyle(.window)
 
         Settings {
-            #if DEBUG
-            SettingsView(
-                preferences: menuBarPreferences, codex: codex, alerts: usageAlerts,
-                themePreferences: themePreferences, history: usageHistory, proAccess: proAccess,
-                testLicense: testLicense
-            )
-            #else
-            SettingsView(
-                preferences: menuBarPreferences, codex: codex, alerts: usageAlerts,
-                themePreferences: themePreferences, history: usageHistory, proAccess: proAccess
-            )
-            #endif
+            SettingsView(preferences: menuBarPreferences, codex: codex, alerts: usageAlerts, themePreferences: themePreferences, history: usageHistory)
         }
     }
 }

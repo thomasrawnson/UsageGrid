@@ -7,89 +7,6 @@ import UserNotifications
 @testable import UsageGrid
 @testable import UsageGridClaudeCore
 
-private final class TestProLicenseStorage: ProLicenseCredentialStoring, @unchecked Sendable {
-    var credential: ProLicenseCredential?
-    var failSave = false
-    var failLoad = false
-    var failDelete = false
-    var saveCount = 0
-    var deleteCount = 0
-
-    init(credential: ProLicenseCredential? = nil) { self.credential = credential }
-    func load() throws -> ProLicenseCredential? {
-        if failLoad { throw TestError.failed }
-        return credential
-    }
-    func save(_ credential: ProLicenseCredential) throws {
-        saveCount += 1
-        if failSave { throw TestError.failed }
-        self.credential = credential
-    }
-    func delete() throws {
-        deleteCount += 1
-        if failDelete { throw TestError.failed }
-        credential = nil
-    }
-    enum TestError: Error { case failed }
-}
-
-private actor TestProLicenseService: ProLicenseServicing {
-    enum Result: Sendable {
-        case success(ProLicenseVerification, Duration?)
-        case failure(ProLicenseServiceError)
-    }
-
-    var activationResults: [Result]
-    var validationResult: Result
-    var deactivationResult: Result?
-    var activationCount = 0
-    var validationCount = 0
-    var deactivationCount = 0
-
-    init(activationResults: [Result], validationResult: Result? = nil, deactivationResult: Result? = nil) {
-        self.activationResults = activationResults
-        self.validationResult = validationResult ?? activationResults.first ?? .failure(.invalidResponse)
-        self.deactivationResult = deactivationResult
-    }
-
-    func activate(licenseKey: String) async throws -> ProLicenseVerification {
-        let index = min(activationCount, max(0, activationResults.count - 1))
-        activationCount += 1
-        return try await resolve(activationResults[index])
-    }
-
-    func validate(credential: ProLicenseCredential) async throws -> ProLicenseVerification {
-        validationCount += 1
-        return try await resolve(validationResult)
-    }
-
-    func deactivate(credential: ProLicenseCredential) async throws -> ProLicenseIdentity {
-        deactivationCount += 1
-        let result = deactivationResult ?? validationResult
-        return try await resolve(result).identity
-    }
-
-    func count() -> Int { activationCount }
-    func counts() -> (Int, Int, Int) { (activationCount, validationCount, deactivationCount) }
-    func setDeactivationResult(_ result: Result) { deactivationResult = result }
-
-    private func resolve(_ result: Result) async throws -> ProLicenseVerification {
-        switch result {
-        case .success(let verification, let delay):
-            if let delay { try? await Task.sleep(for: delay) }
-            return verification
-        case .failure(let error):
-            throw error
-        }
-    }
-}
-
-private let testLicenseIdentity = ProLicenseIdentity(storeID: 485681, productID: 1395768, variantID: 2179685)
-private let testLicenseCredential = ProLicenseCredential(licenseKey: "TEST-SECRET-LICENCE", activationID: "test-activation")
-private var testLicenseVerification: ProLicenseVerification {
-    ProLicenseVerification(credential: testLicenseCredential, identity: testLicenseIdentity)
-}
-
 @Test func claudeStatusLineDecodesOnlySupportedQuotaFields() throws {
     let captured = Date(timeIntervalSince1970: 2_000)
     let data = Data(#"{"session_id":"private","transcript_path":"/private/transcript","workspace":{"current_dir":"/private/repo"},"account_id":"private","version":"2.1.90","rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":5000},"seven_day":{"used_percentage":41.2,"resets_at":9000},"spend_limit":{"used_usd":12}}}"#.utf8)
@@ -220,469 +137,6 @@ private var testLicenseVerification: ProLicenseVerification {
     #expect(SelectedProvider.codex.accessibilityLabel == "Codex provider")
 }
 
-@Test @MainActor func productionLicenceFoundationRemainsUnavailableAndUnentitled() {
-    let controller = ProLicenseController.productionFoundation()
-    #expect(controller.state == .unavailable)
-    #expect(!controller.hasVerifiedEntitlement)
-    #expect(!controller.activate(licenseKey: "ANY-KEY"))
-    #expect(ThemeAccess.production.hasProEntitlement == false)
-}
-
-@Test @MainActor func licenceActivationViewRendersWithIsolatedFoundation() {
-    let controller = ProLicenseController.productionFoundation()
-    let renderer = ImageRenderer(content: ProLicenseActivationView(controller: controller))
-    renderer.proposedSize = ProposedViewSize(width: 420, height: 260)
-    #expect(renderer.cgImage != nil)
-    #expect(controller.state == .unavailable)
-    #expect(!controller.hasVerifiedEntitlement)
-}
-
-@Test @MainActor func storedLicenceRequiresSuccessfulRemoteVerification() async {
-    let storage = TestProLicenseStorage(credential: testLicenseCredential)
-    let service = TestProLicenseService(
-        activationResults: [.failure(.networkUnavailable)],
-        validationResult: .failure(.invalidOrRevoked)
-    )
-    let controller = ProLicenseController(service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true)
-
-    #expect(!controller.hasVerifiedEntitlement)
-    #expect(controller.validateStoredCredential())
-    await controller.waitForOperation()
-    #expect(controller.state == .failed(.invalidOrRevoked))
-    #expect(!controller.hasVerifiedEntitlement)
-}
-
-@Test @MainActor func injectedLicenceActivationHandlesSuccessFailureAndDuplicateSubmission() async {
-    let delayedService = TestProLicenseService(activationResults: [.success(testLicenseVerification, .milliseconds(80))])
-    let storage = TestProLicenseStorage()
-    let controller = ProLicenseController(service: delayedService, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true)
-
-    #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
-    #expect(!controller.activate(licenseKey: "SECOND-KEY"))
-    await controller.waitForOperation()
-    #expect(controller.state == .verifiedActive)
-    #expect(controller.hasVerifiedEntitlement)
-    #expect(await delayedService.count() == 1)
-    #expect(storage.saveCount == 1)
-
-    let failed = ProLicenseController(
-        service: TestProLicenseService(activationResults: [.failure(.rejected)]),
-        storage: TestProLicenseStorage(), expectedIdentity: testLicenseIdentity, activationAvailable: true
-    )
-    #expect(failed.activate(licenseKey: "PRIVATE-LICENCE"))
-    await failed.waitForOperation()
-    #expect(failed.state == .failed(.invalidOrRevoked))
-    #expect(!failed.hasVerifiedEntitlement)
-}
-
-@Test @MainActor func cancelledLicenceCompletionCannotOverrideANewerActivation() async {
-    let oldVerification = ProLicenseVerification(
-        credential: ProLicenseCredential(licenseKey: "OLD-SECRET", activationID: "old"),
-        identity: ProLicenseIdentity(storeID: 1, productID: 2, variantID: 3)
-    )
-    let service = TestProLicenseService(activationResults: [
-        .success(oldVerification, .milliseconds(100)),
-        .success(testLicenseVerification, nil)
-    ])
-    let storage = TestProLicenseStorage()
-    let controller = ProLicenseController(service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true)
-
-    #expect(controller.activate(licenseKey: "OLD-SECRET"))
-    controller.cancelPendingOperation()
-    #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
-    await controller.waitForOperation()
-    try? await Task.sleep(for: .milliseconds(120))
-    #expect(controller.state == .verifiedActive)
-    #expect(storage.credential == testLicenseCredential)
-}
-
-@Test @MainActor func licenceStorageFailureDoesNotGrantAccess() async {
-    let storage = TestProLicenseStorage()
-    storage.failSave = true
-    let controller = ProLicenseController(
-        service: TestProLicenseService(activationResults: [.success(testLicenseVerification, nil)]),
-        storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true
-    )
-    #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
-    await controller.waitForOperation()
-    #expect(controller.state == .failed(.storageFailedAfterActivation))
-    #expect(!controller.hasVerifiedEntitlement)
-}
-
-@Test @MainActor func licenceProductAndStoreIdentityMustMatchBeforeAccess() async {
-    let mismatched = ProLicenseVerification(
-        credential: testLicenseCredential,
-        identity: ProLicenseIdentity(storeID: 1, productID: 2, variantID: 3)
-    )
-    let storage = TestProLicenseStorage()
-    let controller = ProLicenseController(
-        service: TestProLicenseService(activationResults: [.success(mismatched, nil)]),
-        storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true
-    )
-    #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
-    await controller.waitForOperation()
-    #expect(controller.state == .failed(.productMismatch))
-    #expect(!controller.hasVerifiedEntitlement)
-    #expect(storage.credential == nil)
-}
-
-@Test @MainActor func licenceErrorsAndDiagnosticsCannotLeakLicenceValues() async {
-    let secret = "LS-VERY-SECRET-LICENCE"
-    let controller = ProLicenseController(
-        service: TestProLicenseService(activationResults: [.failure(.rejected)]),
-        storage: TestProLicenseStorage(), expectedIdentity: testLicenseIdentity, activationAvailable: true
-    )
-    #expect(controller.activate(licenseKey: secret))
-    await controller.waitForOperation()
-    guard case .failed(let failure) = controller.state else {
-        Issue.record("Expected a safe activation failure")
-        return
-    }
-    #expect(!failure.userMessage.contains(secret))
-    #expect(!failure.userMessage.contains("customer@example.com"))
-
-    let diagnostics = SupportDiagnosticsReport.make(input: SupportDiagnosticsInput(
-        appVersion: nil, appBuild: nil, macOSVersion: nil, architecture: nil,
-        isRefreshing: false, hasReading: false, isStale: false, lastSuccessfulRefresh: nil,
-        lastError: nil, unsafeErrorDetail: secret, executableSource: nil, notificationSettings: nil,
-        historyRecordingEnabled: false, historyHasStorageError: false,
-        hasProAccess: false, isDebugSimulation: false
-    ))
-    #expect(!diagnostics.contains(secret))
-}
-
-@Test @MainActor func restartValidatesStoredLicenceWithoutActivatingAgain() async {
-    let storage = TestProLicenseStorage(credential: testLicenseCredential)
-    let service = TestProLicenseService(
-        activationResults: [.failure(.invalidResponse)],
-        validationResult: .success(testLicenseVerification, nil)
-    )
-    let access = ProAccessController()
-    let controller = ProLicenseController(
-        service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true,
-        entitlementChanged: { access.setVerifiedTestLicense($0) }
-    )
-
-    #expect(controller.validateStoredCredential(initial: true))
-    #expect(!controller.validateStoredCredential(initial: true))
-    await controller.waitForOperation()
-    #expect(controller.state == .verifiedActive)
-    #expect(access.effectiveAccess.hasProEntitlement)
-    let counts = await service.counts()
-    #expect(counts.0 == 0)
-    #expect(counts.1 == 1)
-}
-
-@Test @MainActor func invalidRestartValidationRemovesTestAccess() async {
-    let access = ProAccessController()
-    access.setVerifiedTestLicense(true)
-    let controller = ProLicenseController(
-        service: TestProLicenseService(
-            activationResults: [.failure(.networkUnavailable)],
-            validationResult: .failure(.invalidOrRevoked)
-        ),
-        storage: TestProLicenseStorage(credential: testLicenseCredential),
-        expectedIdentity: testLicenseIdentity, activationAvailable: true,
-        entitlementChanged: { access.setVerifiedTestLicense($0) }
-    )
-
-    #expect(controller.validateStoredCredential())
-    await controller.waitForOperation()
-    #expect(controller.state == .failed(.invalidOrRevoked))
-    #expect(!access.effectiveAccess.hasProEntitlement)
-}
-
-@Test @MainActor func storageRecoveryDoesNotRepeatRemoteActivation() async {
-    let storage = TestProLicenseStorage()
-    storage.failSave = true
-    let service = TestProLicenseService(activationResults: [.success(testLicenseVerification, nil)])
-    let controller = ProLicenseController(
-        service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true
-    )
-
-    #expect(controller.activate(licenseKey: testLicenseCredential.licenseKey))
-    await controller.waitForOperation()
-    #expect(controller.state == .failed(.storageFailedAfterActivation))
-    storage.failSave = false
-    #expect(controller.retryPendingCredentialStorage())
-    #expect(controller.state == .verifiedActive)
-    #expect(storage.credential == testLicenseCredential)
-    #expect(await service.count() == 1)
-}
-
-@Test @MainActor func deactivationFailureRetainsCredentialsAndSuccessRemovesAccess() async {
-    let storage = TestProLicenseStorage(credential: testLicenseCredential)
-    let service = TestProLicenseService(
-        activationResults: [.failure(.networkUnavailable)],
-        validationResult: .success(testLicenseVerification, nil),
-        deactivationResult: .failure(.networkUnavailable)
-    )
-    let access = ProAccessController()
-    access.setVerifiedTestLicense(true)
-    let controller = ProLicenseController(
-        service: service, storage: storage, expectedIdentity: testLicenseIdentity, activationAvailable: true,
-        entitlementChanged: { access.setVerifiedTestLicense($0) }
-    )
-
-    #expect(controller.deactivate())
-    await controller.waitForOperation()
-    #expect(controller.state == .failed(.deactivationFailed))
-    #expect(storage.credential == testLicenseCredential)
-    #expect(!access.effectiveAccess.hasProEntitlement)
-
-    await service.setDeactivationResult(.success(testLicenseVerification, nil))
-    #expect(controller.deactivate())
-    await controller.waitForOperation()
-    #expect(controller.state == .inactive)
-    #expect(storage.credential == nil)
-    #expect(storage.deleteCount == 1)
-}
-
-#if DEBUG
-private actor TestLicenseHTTPTransport: ProLicenseHTTPTransporting {
-    let data: Data
-    let statusCode: Int
-    private(set) var requests: [URLRequest] = []
-    init(json: String, statusCode: Int = 200) {
-        data = Data(json.utf8)
-        self.statusCode = statusCode
-    }
-    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        requests.append(request)
-        let response = HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!
-        return (data, response)
-    }
-    func requestCount() -> Int { requests.count }
-}
-
-@Test func lemonSqueezyTestServiceUsesOfficialIdentityAndInstanceContract() async throws {
-    let transport = TestLicenseHTTPTransport(json: """
-    {"activated":true,"license_key":{"status":"active"},"instance":{"id":"instance-fixture"},"meta":{"store_id":485681,"product_id":1395768,"variant_id":2179685}}
-    """)
-    let service = LemonSqueezyTestLicenseService(transport: transport)
-    let verification = try await service.activate(licenseKey: "PRIVATE-FIXTURE")
-    #expect(verification.identity == testLicenseIdentity)
-    #expect(verification.credential.activationID == "instance-fixture")
-    #expect(await transport.requestCount() == 1)
-}
-
-@Test func lemonSqueezyTestServiceRejectsInvalidAndMalformedResponsesSafely() async {
-    let invalidService = LemonSqueezyTestLicenseService(transport: TestLicenseHTTPTransport(json: """
-    {"valid":false,"error":"sensitive provider detail","license_key":{"status":"disabled"},"meta":{"store_id":485681,"product_id":1395768,"variant_id":2179685}}
-    """))
-    do {
-        _ = try await invalidService.validate(credential: testLicenseCredential)
-        Issue.record("Expected disabled licence rejection")
-    } catch {
-        #expect(error as? ProLicenseServiceError == .invalidOrRevoked)
-        #expect(!String(describing: error).contains("sensitive provider detail"))
-    }
-
-    let malformedService = LemonSqueezyTestLicenseService(transport: TestLicenseHTTPTransport(json: "not-json"))
-    do {
-        _ = try await malformedService.validate(credential: testLicenseCredential)
-        Issue.record("Expected malformed response rejection")
-    } catch {
-        #expect(error as? ProLicenseServiceError == .invalidResponse)
-    }
-}
-
-private struct FixedProLicenseInstanceIdentity: ProLicenseInstanceIdentifying {
-    let value: String
-    func instanceName() -> String { value }
-}
-
-private actor ProductionLicenseHTTPTransport: ProLicenseHTTPTransporting {
-    enum Result: Sendable {
-        case response(String, Int)
-        case failure(URLError.Code)
-    }
-
-    private let result: Result
-    private let delay: Duration?
-    private(set) var requests: [URLRequest] = []
-
-    init(_ result: Result, delay: Duration? = nil) {
-        self.result = result
-        self.delay = delay
-    }
-
-    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        requests.append(request)
-        if let delay { try await Task.sleep(for: delay) }
-        switch result {
-        case .response(let json, let status):
-            return (Data(json.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
-        case .failure(let code):
-            throw URLError(code)
-        }
-    }
-
-    func requestCount() -> Int { requests.count }
-    func firstRequest() -> URLRequest? { requests.first }
-}
-
-private let productionIdentity = ProLicenseIdentity(storeID: 100, productID: 200, variantID: 300)
-private let productionConfiguration = ProductionProLicenseConfiguration(
-    identity: productionIdentity,
-    licensedMajorVersion: 1,
-    requestTimeout: 4
-)
-private let productionCredential = ProLicenseCredential(licenseKey: "PRIVATE-PRODUCTION-FIXTURE", activationID: "production-instance")
-
-private func productionService(
-    json: String,
-    status: Int = 200,
-    runningMajorVersion: Int = 1,
-    delay: Duration? = nil
-) -> (LemonSqueezyProductionLicenseService, ProductionLicenseHTTPTransport) {
-    let transport = ProductionLicenseHTTPTransport(.response(json, status), delay: delay)
-    return (
-        LemonSqueezyProductionLicenseService(
-            configuration: productionConfiguration,
-            runningMajorVersion: runningMajorVersion,
-            instanceIdentity: FixedProLicenseInstanceIdentity(value: "UsageGrid Mac stable-fixture"),
-            transport: transport
-        ),
-        transport
-    )
-}
-
-private func expectProductionLicenseError(
-    _ expected: ProLicenseServiceError,
-    operation: () async throws -> Void
-) async {
-    do {
-        try await operation()
-        Issue.record("Expected production licensing error \(expected)")
-    } catch {
-        #expect(error as? ProLicenseServiceError == expected)
-    }
-}
-
-@Test func productionLicenseConfigurationIsIncompleteUntilLiveIDsAreApproved() async {
-    #expect(ProductionProLicenseConfiguration.current == nil)
-    let service = LemonSqueezyProductionLicenseService(configuration: nil, runningMajorVersion: 1)
-    await expectProductionLicenseError(.configurationUnavailable) {
-        _ = try await service.activate(licenseKey: productionCredential.licenseKey)
-    }
-}
-
-@Test func productionLicenseActivationValidationAndDeactivationUseOfficialContracts() async throws {
-    let activation = productionService(json: """
-    {"activated":true,"license_key":{"status":"active"},"instance":{"id":"production-instance"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
-    """)
-    let activated = try await activation.0.activate(licenseKey: productionCredential.licenseKey)
-    #expect(activated == ProLicenseVerification(credential: productionCredential, identity: productionIdentity))
-    let activationRequest = await activation.1.firstRequest()
-    #expect(activationRequest?.timeoutInterval == 4)
-    #expect(String(data: activationRequest?.httpBody ?? Data(), encoding: .utf8)?.contains("instance_name=UsageGrid%20Mac%20stable-fixture") == true)
-
-    let validation = productionService(json: """
-    {"valid":true,"license_key":{"status":"active"},"instance":{"id":"production-instance"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
-    """)
-    #expect(try await validation.0.validate(credential: productionCredential) == activated)
-
-    let deactivation = productionService(json: """
-    {"deactivated":true,"license_key":{"status":"inactive"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
-    """)
-    #expect(try await deactivation.0.deactivate(credential: productionCredential) == productionIdentity)
-}
-
-@Test func productionLicenseRejectsWrongStoreProductAndVariant() async {
-    let mismatches = [(999, 200, 300), (100, 999, 300), (100, 200, 999)]
-    for mismatch in mismatches {
-        let value = productionService(json: """
-        {"valid":true,"license_key":{"status":"active"},"instance":{"id":"production-instance"},"meta":{"store_id":\(mismatch.0),"product_id":\(mismatch.1),"variant_id":\(mismatch.2)}}
-        """)
-        await expectProductionLicenseError(.productMismatch) {
-            _ = try await value.0.validate(credential: productionCredential)
-        }
-    }
-}
-
-@Test func productionLicenseRejectsWrongMajorWithoutNetworkRequest() async {
-    let value = productionService(json: "{}", runningMajorVersion: 2)
-    await expectProductionLicenseError(.majorVersionMismatch) {
-        _ = try await value.0.activate(licenseKey: productionCredential.licenseKey)
-    }
-    #expect(await value.1.requestCount() == 0)
-}
-
-@Test func productionLicenseRejectsInvalidInstanceActivationLimitAndRevocation() async {
-    let wrongInstance = productionService(json: """
-    {"valid":true,"license_key":{"status":"active"},"instance":{"id":"different-instance"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
-    """)
-    await expectProductionLicenseError(.instanceMismatch) {
-        _ = try await wrongInstance.0.validate(credential: productionCredential)
-    }
-
-    let limit = productionService(json: """
-    {"activated":false,"error":"This license key has reached the activation limit.","license_key":{"status":"active"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
-    """)
-    await expectProductionLicenseError(.activationLimitReached) {
-        _ = try await limit.0.activate(licenseKey: productionCredential.licenseKey)
-    }
-
-    let revoked = productionService(json: """
-    {"valid":false,"error":"private provider detail","license_key":{"status":"disabled"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
-    """)
-    await expectProductionLicenseError(.revokedOrDisabled) {
-        _ = try await revoked.0.validate(credential: productionCredential)
-    }
-}
-
-@Test func productionLicenseClassifiesTimeoutAndMalformedResponses() async {
-    let timeoutTransport = ProductionLicenseHTTPTransport(.failure(.timedOut))
-    let timeoutService = LemonSqueezyProductionLicenseService(
-        configuration: productionConfiguration,
-        runningMajorVersion: 1,
-        instanceIdentity: FixedProLicenseInstanceIdentity(value: "UsageGrid Mac stable-fixture"),
-        transport: timeoutTransport
-    )
-    await expectProductionLicenseError(.timedOut) {
-        _ = try await timeoutService.validate(credential: productionCredential)
-    }
-
-    let networkTransport = ProductionLicenseHTTPTransport(.failure(.notConnectedToInternet))
-    let networkService = LemonSqueezyProductionLicenseService(
-        configuration: productionConfiguration,
-        runningMajorVersion: 1,
-        instanceIdentity: FixedProLicenseInstanceIdentity(value: "UsageGrid Mac stable-fixture"),
-        transport: networkTransport
-    )
-    await expectProductionLicenseError(.networkUnavailable) {
-        _ = try await networkService.validate(credential: productionCredential)
-    }
-
-    let expired = productionService(json: """
-    {"valid":false,"error":"private provider detail","license_key":{"status":"expired"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
-    """)
-    await expectProductionLicenseError(.expired) {
-        _ = try await expired.0.validate(credential: productionCredential)
-    }
-
-    let malformed = productionService(json: "not-json")
-    await expectProductionLicenseError(.invalidResponse) {
-        _ = try await malformed.0.validate(credential: productionCredential)
-    }
-}
-
-@Test func productionLicenseSerializesConcurrentRequests() async throws {
-    let value = productionService(json: """
-    {"valid":true,"license_key":{"status":"active"},"instance":{"id":"production-instance"},"meta":{"store_id":100,"product_id":200,"variant_id":300}}
-    """, delay: .milliseconds(100))
-
-    let first = Task { try await value.0.validate(credential: productionCredential) }
-    while await value.1.requestCount() == 0 { await Task.yield() }
-    await expectProductionLicenseError(.operationInProgress) {
-        _ = try await value.0.validate(credential: productionCredential)
-    }
-    #expect(try await first.value.identity == productionIdentity)
-    #expect(await value.1.requestCount() == 1)
-}
-#endif
-
 @Test func supportDiagnosticsUsesOnlyAllowlistedSafeFields() {
     let now = Date(timeIntervalSince1970: 2_000_000_000)
     let sentinel = "SECRET user@example.com /Users/private token=abc123"
@@ -692,8 +146,7 @@ private func expectProductionLicenseError(
         lastSuccessfulRefresh: now.addingTimeInterval(-125), lastError: .authenticationRequired,
         unsafeErrorDetail: sentinel, executableSource: "ChatGPT bundled Codex",
         notificationSettings: SupportNotificationSettings(authorization: "Authorized", alerts: "Enabled", notificationCentre: "Disabled"),
-        historyRecordingEnabled: true, historyHasStorageError: true,
-        hasProAccess: true, isDebugSimulation: true
+        historyRecordingEnabled: true, historyHasStorageError: true
     ), now: now)
 
     #expect(report.contains("App version: 1.2.3"))
@@ -703,7 +156,6 @@ private func expectProductionLicenseError(
     #expect(report.contains("Last successful refresh: 2 minutes ago"))
     #expect(report.contains("Notification Centre: Disabled"))
     #expect(report.contains("History storage: Unavailable (local storage error)"))
-    #expect(report.contains("Access: Pro (Debug simulation; not a purchase)"))
     #expect(!report.contains(sentinel))
     #expect(!report.contains("user@example.com"))
     #expect(!report.contains("/Users/"))
@@ -715,8 +167,7 @@ private func expectProductionLicenseError(
         isRefreshing: false, hasReading: false, isStale: false,
         lastSuccessfulRefresh: nil, lastError: nil, unsafeErrorDetail: nil,
         executableSource: nil, notificationSettings: nil,
-        historyRecordingEnabled: false, historyHasStorageError: false,
-        hasProAccess: false, isDebugSimulation: false
+        historyRecordingEnabled: false, historyHasStorageError: false
     ))
 
     #expect(report.contains("App version: Unknown"))
@@ -724,7 +175,6 @@ private func expectProductionLicenseError(
     #expect(report.contains("Reading freshness: Unavailable"))
     #expect(report.contains("Last successful refresh: Unavailable"))
     #expect(report.contains("Notification permission: Unknown"))
-    #expect(report.contains("Access: Free"))
 }
 
 @Test func supportDiagnosticsMapsEveryReaderErrorToFixedSafeCopy() {
@@ -840,82 +290,29 @@ actor TestHistoryStore: UsageHistoryPersisting {
     #expect(UsageTheme.lookup("aurora").id == .programming)
     #expect(UsageTheme.lookup("future-theme").id == .programming)
     #expect(UsageTheme.lookup(nil).id == .programming)
-    #expect(UsageTheme.all.filter(\.isPremium).count == 4)
+    #expect(UsageTheme.all.count == 6)
 }
 
-@Test func productionThemeAccessRejectsPremiumSavedValuesAndSelection() throws {
+@Test func allThemesAreAvailableAndSavedSelectionSurvivesRestart() throws {
     let suiteName = "UsageGridTests.Themes.Free.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
-    defaults.set(UsageThemeID.retro.rawValue, forKey: ThemePreferences.activeThemeKey)
-
-    let access = ProAccessController()
-    let preferences = ThemePreferences(defaults: defaults, access: access)
-
-    #expect(!ThemeAccess.production.hasProEntitlement)
-    #expect(preferences.activeTheme.id == .programming)
-    #expect(!preferences.select(UsageTheme.lookup(UsageThemeID.retro.rawValue)))
-    #expect(preferences.activeTheme.id == .programming)
-    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.retro.rawValue)
-
-    #expect(preferences.select(UsageTheme.lookup(UsageThemeID.professional.rawValue)))
-    #expect(preferences.activeTheme.id == .professional)
-}
-
-@Test func entitledThemeSelectionPersistsWhilePreviewRemainsIsolated() throws {
-    let suiteName = "UsageGridTests.Themes.ProBoundary.\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suiteName))
-    defer { defaults.removePersistentDomain(forName: suiteName) }
-    let access = ProAccessController(hasVerifiedPurchaseEntitlement: true)
-    let preferences = ThemePreferences(defaults: defaults, access: access)
-    let space = UsageTheme.lookup(UsageThemeID.space.rawValue)
-
-    #expect(access.effectiveAccess.canSelect(space))
-    #expect(preferences.select(space))
-    #expect(preferences.activeTheme.id == .space)
-    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.space.rawValue)
-
+    for theme in UsageTheme.all {
+        defaults.set(theme.id.rawValue, forKey: ThemePreferences.activeThemeKey)
+        let preferences = ThemePreferences(defaults: defaults)
+        #expect(preferences.activeTheme.id == theme.id)
+        #expect(preferences.select(theme))
+        #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == theme.id.rawValue)
+    }
+    let preferences = ThemePreferences(defaults: defaults)
     let previewedTheme = UsageTheme.lookup(UsageThemeID.anime.rawValue)
-    let previewStates = ThemePreviewState.allCases
     #expect(previewedTheme.id == .anime)
-    #expect(previewStates == [.normal, .stale, .unavailable, .error])
+    #expect(ThemePreviewState.allCases == [.normal, .stale, .unavailable, .error])
     #expect(preferences.activeTheme.id == .space)
-    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.space.rawValue)
 }
 
-#if DEBUG
-@Test func debugSimulationControlsSharedThemeAndHistoryAccessWithoutPersisting() throws {
-    let suiteName = "UsageGridTests.Themes.DebugSimulation.\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suiteName))
-    defer { defaults.removePersistentDomain(forName: suiteName) }
-    defaults.set(UsageThemeID.anime.rawValue, forKey: ThemePreferences.activeThemeKey)
-
-    let firstRunAccess = ProAccessController()
-    let preferences = ThemePreferences(defaults: defaults, access: firstRunAccess)
-    let anime = UsageTheme.lookup(UsageThemeID.anime.rawValue)
-
-    #expect(!firstRunAccess.effectiveAccess.canViewUsageHistory)
-    #expect(!firstRunAccess.effectiveAccess.canSelect(anime))
-    #expect(preferences.activeTheme.id == .programming)
-
-    firstRunAccess.isDeveloperProSimulationEnabled = true
-    #expect(firstRunAccess.effectiveAccess.canViewUsageHistory)
-    #expect(firstRunAccess.effectiveAccess.canSelect(anime))
-    #expect(preferences.activeTheme.id == .anime)
-
-    firstRunAccess.isDeveloperProSimulationEnabled = false
-    #expect(!firstRunAccess.effectiveAccess.canViewUsageHistory)
-    #expect(preferences.activeTheme.id == .programming)
-    #expect(defaults.string(forKey: ThemePreferences.activeThemeKey) == UsageThemeID.anime.rawValue)
-
-    let nextRunAccess = ProAccessController()
-    #expect(!nextRunAccess.isDeveloperProSimulationEnabled)
-    #expect(!nextRunAccess.effectiveAccess.hasProEntitlement)
-}
-#endif
-
-@Test @MainActor func premiumThemeSampleStatesRender() {
-    for theme in UsageTheme.all.filter(\.isPremium) {
+@Test @MainActor func themeSampleStatesRender() {
+    for theme in UsageTheme.all {
         let palette = UsageThemePalette(theme: theme, colorScheme: .dark)
         for state in ThemePreviewState.allCases {
             let renderer = ImageRenderer(content: ThemeSampleCard(theme: theme, state: state, palette: palette).frame(width: 460))
@@ -925,12 +322,12 @@ actor TestHistoryStore: UsageHistoryPersisting {
     }
 }
 
-@Test @MainActor func exportPremiumThemePreviewsWhenRequested() throws {
+@Test @MainActor func exportThemePreviewsWhenRequested() throws {
     guard let outputPath = ProcessInfo.processInfo.environment["USAGEGRID_THEME_PREVIEW_DIR"] else { return }
     let outputURL = URL(fileURLWithPath: outputPath, isDirectory: true)
     try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
 
-    for theme in UsageTheme.all.filter(\.isPremium) {
+    for theme in UsageTheme.all {
         let palette = UsageThemePalette(theme: theme, colorScheme: .dark)
         let renderer = ImageRenderer(content: ThemeExportPreview(theme: theme, palette: palette))
         renderer.scale = 2
@@ -1487,13 +884,13 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     #expect(preferences.lastAlertedSecondaryWindow == nil)
 }
 
-@Test @MainActor func proAlertsUseIndependentThresholdsAndIdentifyWindows() async throws {
+@Test @MainActor func secondaryAlertsUseIndependentThresholdsAndIdentifyWindows() async throws {
     let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.Independent.\(UUID())"))
     let preferences = UsageAlertPreferences(defaults: defaults)
     preferences.enabled = true; preferences.threshold = .ninetyFive
     preferences.secondaryEnabled = true; preferences.secondaryThreshold = .eighty
     let notifications = TestUsageAlertNotifications(status: .authorized)
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
     let reset = Date(timeIntervalSince1970: 20_000)
     let windows = [
         alertWindow(used: 90, reset: reset),
@@ -1513,7 +910,7 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     let preferences = UsageAlertPreferences(defaults: defaults)
     preferences.enabled = true; preferences.secondaryEnabled = true
     let notifications = TestUsageAlertNotifications(status: .authorized)
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
     #expect(await controller.evaluate(windows: [alertWindow(used: 91, reset: Date(timeIntervalSince1970: 20_000))], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
     #expect(await controller.evaluate(windows: [alertWindow(used: 91, reset: Date(timeIntervalSince1970: 30_000), id: "secondary", duration: 10_080, label: "Weekly limit")], isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
     #expect(await notifications.snapshot().deliveries.count == 2)
@@ -1527,34 +924,20 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     let notifications = TestUsageAlertNotifications(status: .authorized)
     let reset = Date(timeIntervalSince1970: 20_000)
     let windows = [alertWindow(used: 92, reset: reset), alertWindow(used: 92, reset: reset, id: "secondary", duration: 10_080, label: "Weekly limit")]
-    var controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    var controller = UsageAlertController(preferences: preferences, notifications: notifications)
     #expect(await controller.evaluate(windows: windows, isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000)))
     #expect(await notifications.snapshot().deliveries.count == 2)
     preferences = UsageAlertPreferences(defaults: defaults)
-    controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    controller = UsageAlertController(preferences: preferences, notifications: notifications)
     #expect(!(await controller.evaluate(windows: windows, isFresh: true, observedAt: Date(timeIntervalSince1970: 10_000))))
     #expect(await notifications.snapshot().deliveries.count == 2)
-}
-
-@Test @MainActor func proLossStopsSecondaryAfterPermissionAwaitAndRetainsPreference() async throws {
-    let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.ProLoss.\(UUID())"))
-    let preferences = UsageAlertPreferences(defaults: defaults); preferences.secondaryEnabled = true
-    let notifications = TestUsageAlertNotifications(status: .authorized, permissionStatusDelays: [.milliseconds(80)])
-    let access = ProAccessController(); access.isDeveloperProSimulationEnabled = true
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { access.effectiveAccess.canUseSecondaryAlerts })
-    let secondary = alertWindow(used: 95, reset: Date(timeIntervalSince1970: 20_000), id: "secondary", duration: 10_080, label: "Weekly limit")
-    let evaluation = Task { await controller.evaluate(windows: [secondary], isFresh: true) }
-    try? await Task.sleep(for: .milliseconds(10)); access.isDeveloperProSimulationEnabled = false
-    #expect(!(await evaluation.value))
-    #expect(preferences.secondaryEnabled)
-    #expect(await notifications.snapshot().deliveries.isEmpty)
 }
 
 @Test @MainActor func permissionRefreshDoesNotEnableEitherWindowAlert() async throws {
     let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.BothPreferenceSeparation.\(UUID())"))
     let preferences = UsageAlertPreferences(defaults: defaults)
     let notifications = TestUsageAlertNotifications(status: .authorized)
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
     await controller.refreshPermissionStatus()
     #expect(controller.permissionStatus == .authorized)
     #expect(!preferences.enabled)
@@ -1580,7 +963,7 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.ResetConfirmed.\(UUID())"))
     let preferences = UsageAlertPreferences(defaults: defaults); preferences.primaryResetEnabled = true
     let notifications = TestUsageAlertNotifications(status: .authorized)
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
     let firstReset = Date(timeIntervalSince1970: 1_100)
     let nextReset = Date(timeIntervalSince1970: 1_400)
 
@@ -1598,7 +981,7 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.ResetEarly.\(UUID())"))
     let preferences = UsageAlertPreferences(defaults: defaults); preferences.primaryResetEnabled = true
     let notifications = TestUsageAlertNotifications(status: .authorized)
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
 
     _ = await controller.evaluate(windows: [alertWindow(used: 70, reset: Date(timeIntervalSince1970: 1_200))], isFresh: true, observedAt: Date(timeIntervalSince1970: 1_000))
     #expect(!(await controller.evaluate(windows: [alertWindow(used: 20, reset: Date(timeIntervalSince1970: 1_400))], isFresh: true, observedAt: Date(timeIntervalSince1970: 1_100))))
@@ -1610,7 +993,7 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.ResetMetadata.\(UUID())"))
     let preferences = UsageAlertPreferences(defaults: defaults); preferences.primaryResetEnabled = true
     let notifications = TestUsageAlertNotifications(status: .authorized)
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
 
     _ = await controller.evaluate(windows: [alertWindow(used: 60, reset: Date(timeIntervalSince1970: 1_100))], isFresh: true, observedAt: Date(timeIntervalSince1970: 1_000))
     _ = await controller.evaluate(windows: nil, isFresh: false, observedAt: Date(timeIntervalSince1970: 1_200))
@@ -1628,7 +1011,7 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     var preferences = UsageAlertPreferences(defaults: defaults)
     preferences.primaryResetEnabled = true; preferences.secondaryResetEnabled = true
     let notifications = TestUsageAlertNotifications(status: .authorized)
-    var controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    var controller = UsageAlertController(preferences: preferences, notifications: notifications)
     let first = [alertWindow(used: 60, reset: Date(timeIntervalSince1970: 1_100)), alertWindow(used: 50, reset: Date(timeIntervalSince1970: 2_000), id: "secondary", duration: 10_080, label: "Weekly limit")]
     _ = await controller.evaluate(windows: first, isFresh: true, observedAt: Date(timeIntervalSince1970: 1_000))
     let rolled = [alertWindow(used: 5, reset: Date(timeIntervalSince1970: 1_500)), first[1]]
@@ -1636,30 +1019,27 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     #expect(await notifications.snapshot().deliveries.count == 1)
 
     preferences = UsageAlertPreferences(defaults: defaults)
-    controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    controller = UsageAlertController(preferences: preferences, notifications: notifications)
     let bothLater = [alertWindow(used: 4, reset: Date(timeIntervalSince1970: 1_800)), alertWindow(used: 3, reset: Date(timeIntervalSince1970: 3_000), id: "secondary", duration: 10_080, label: "Weekly limit")]
     #expect(!(await controller.evaluate(windows: bothLater, isFresh: true, observedAt: Date(timeIntervalSince1970: 2_100))))
     #expect(await notifications.snapshot().deliveries.count == 1)
 }
 
-@Test @MainActor func resetAlertDisableReenableProLossAndPermissionDenialDoNotReplay() async throws {
+@Test @MainActor func resetAlertDisableReenableAndPermissionDenialDoNotReplay() async throws {
     let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.ResetAccess.\(UUID())"))
     let preferences = UsageAlertPreferences(defaults: defaults)
     let notifications = TestUsageAlertNotifications(status: .authorized)
-    let access = ProAccessController(); access.isDeveloperProSimulationEnabled = true
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { access.effectiveAccess.canUseResetAlerts })
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
     await controller.setPrimaryResetEnabled(true)
     _ = await controller.evaluate(windows: [alertWindow(used: 60, reset: Date(timeIntervalSince1970: 1_100))], isFresh: true, observedAt: Date(timeIntervalSince1970: 1_000))
     await controller.setPrimaryResetEnabled(false)
     await controller.setPrimaryResetEnabled(true)
     #expect(!(await controller.evaluate(windows: [alertWindow(used: 5, reset: Date(timeIntervalSince1970: 1_500))], isFresh: true, observedAt: Date(timeIntervalSince1970: 1_200))))
-    access.isDeveloperProSimulationEnabled = false
-    #expect(!(await controller.evaluate(windows: [alertWindow(used: 4, reset: Date(timeIntervalSince1970: 1_800))], isFresh: true, observedAt: Date(timeIntervalSince1970: 1_501))))
     #expect(preferences.primaryResetEnabled)
 
     let denied = TestUsageAlertNotifications(status: .denied)
     let deniedPreferences = UsageAlertPreferences(defaults: try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.ResetDenied.\(UUID())")))
-    let deniedController = UsageAlertController(preferences: deniedPreferences, notifications: denied, hasEffectiveProAccess: { true })
+    let deniedController = UsageAlertController(preferences: deniedPreferences, notifications: denied)
     await deniedController.setSecondaryResetEnabled(true)
     #expect(!deniedPreferences.secondaryResetEnabled)
     #expect(await denied.snapshot().requestCount == 0)
@@ -1669,7 +1049,7 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.ResetPermissionRace.\(UUID())"))
     let preferences = UsageAlertPreferences(defaults: defaults)
     let notifications = TestUsageAlertNotifications(status: .denied, permissionStatusDelays: [.milliseconds(80), .zero])
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
     let staleRefresh = Task { await controller.refreshPermissionStatus() }
     try? await Task.sleep(for: .milliseconds(10))
     await notifications.setStatus(.authorized)
@@ -1680,29 +1060,12 @@ private func alertWindow(used: Double, reset: Date?, id: String = "primary", dur
     #expect(!preferences.secondaryResetEnabled)
 }
 
-@Test @MainActor func resetAlertProLossDuringPermissionCheckPreventsSubmissionAndRetainsPreference() async throws {
-    let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.ResetProRace.\(UUID())"))
-    let preferences = UsageAlertPreferences(defaults: defaults); preferences.secondaryResetEnabled = true
-    let notifications = TestUsageAlertNotifications(status: .authorized, permissionStatusDelays: [.milliseconds(80)])
-    let access = ProAccessController(); access.isDeveloperProSimulationEnabled = true
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { access.effectiveAccess.canUseResetAlerts })
-    let baseline = alertWindow(used: 60, reset: Date(timeIntervalSince1970: 1_100), id: "secondary", duration: 10_080, label: "Weekly limit")
-    _ = await controller.evaluate(windows: [baseline], isFresh: true, observedAt: Date(timeIntervalSince1970: 1_000))
-    let rollover = alertWindow(used: 5, reset: Date(timeIntervalSince1970: 20_000), id: "secondary", duration: 10_080, label: "Weekly limit")
-    let evaluation = Task { await controller.evaluate(windows: [rollover], isFresh: true, observedAt: Date(timeIntervalSince1970: 1_101)) }
-    try? await Task.sleep(for: .milliseconds(10)); access.isDeveloperProSimulationEnabled = false
-    #expect(!(await evaluation.value))
-    #expect(preferences.secondaryResetEnabled)
-    #expect(preferences.lastSecondaryResetNotification == nil)
-    #expect(await notifications.snapshot().deliveries.isEmpty)
-}
-
 @Test @MainActor func resetDeliveryFailureDeduplicatesSeparatelyFromThresholdReceipt() async throws {
     let defaults = try #require(UserDefaults(suiteName: "UsageGridTests.Alerts.ResetFailure.\(UUID())"))
     let preferences = UsageAlertPreferences(defaults: defaults)
     preferences.enabled = true; preferences.primaryResetEnabled = true
     let notifications = TestUsageAlertNotifications(status: .authorized, failDelivery: true)
-    let controller = UsageAlertController(preferences: preferences, notifications: notifications, hasEffectiveProAccess: { true })
+    let controller = UsageAlertController(preferences: preferences, notifications: notifications)
     let firstReset = Date(timeIntervalSince1970: 1_100)
     _ = await controller.evaluate(windows: [alertWindow(used: 95, reset: firstReset)], isFresh: true, observedAt: Date(timeIntervalSince1970: 1_000))
     let thresholdReceipt = preferences.lastAlertedWindow
@@ -1928,15 +1291,14 @@ private func historySample(_ minute: Int, used: Double, window: UsageHistoryWind
     #expect(loadingHeight == successfulUsageHeight)
 }
 
-@Test func popupReturnsToUsageWhenHistoryAccessIsRemoved() {
+@Test func popupKeepsHistoryUntilDismissed() {
     var state = PopupPresentationState()
     state.showHistory()
     #expect(state.page == .history)
-    state.accessChanged(canViewHistory: false)
+    state.popupDismissed()
     #expect(state.page == .usage)
 
     state.showHistoryPreview()
-    state.accessChanged(canViewHistory: false)
     #expect(state.page == .historyPreview)
 }
 
@@ -2015,9 +1377,6 @@ private func historySample(_ minute: Int, used: Double, window: UsageHistoryWind
 }
 
 @Test @MainActor func historyPreviewIsIsolatedAndRendersAcrossSixThemes() {
-    #expect(!ThemeAccess.production.hasProEntitlement)
-    #expect(!ThemeAccess.production.canViewUsageHistory)
-    #expect(ThemeAccess(hasProEntitlement: true).canViewUsageHistory)
     #expect(UsageHistoryPreviewSheet.sampleData.count == 6)
     for theme in UsageTheme.all {
         let palette = UsageThemePalette(theme: theme, colorScheme: .dark)
@@ -2064,10 +1423,10 @@ private func historySample(_ minute: Int, used: Double, window: UsageHistoryWind
             .environment(\.dynamicTypeSize, .accessibility2)
     }
     try write("theme-sheet-small.png", size: CGSize(width: 440, height: 420)) {
-        ProThemePreviewSheet(theme: theme)
+        ThemePreviewSheet(theme: theme)
     }
     try write("theme-sheet-enlarged.png", size: CGSize(width: 500, height: 520)) {
-        ProThemePreviewSheet(theme: theme).environment(\.dynamicTypeSize, .accessibility2)
+        ThemePreviewSheet(theme: theme).environment(\.dynamicTypeSize, .accessibility2)
     }
 }
 

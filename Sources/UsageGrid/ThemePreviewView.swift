@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ThemeGalleryView: View {
     @Bindable var preferences: ThemePreferences
-    @Bindable var proAccess: ProAccessController
     @Binding var previewTheme: UsageTheme?
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
@@ -13,7 +12,6 @@ struct ThemeGalleryView: View {
                 ThemeGalleryCard(
                     theme: theme,
                     isSelected: preferences.activeTheme.id == theme.id,
-                    canSelect: proAccess.effectiveAccess.canSelect(theme),
                     select: { preferences.select(theme) },
                     preview: { previewTheme = theme }
                 )
@@ -26,7 +24,6 @@ private struct ThemeGalleryCard: View {
     @Environment(\.colorScheme) private var colorScheme
     let theme: UsageTheme
     let isSelected: Bool
-    let canSelect: Bool
     let select: () -> Void
     let preview: () -> Void
 
@@ -36,14 +33,6 @@ private struct ThemeGalleryCard: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 Text(theme.name).fontWeight(.semibold)
-                if theme.isPremium {
-                    Text("PRO")
-                        .font(.caption2.weight(.bold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.purple.opacity(0.14), in: Capsule())
-                        .accessibilityLabel("Pro theme")
-                }
                 Spacer()
                 if isSelected {
                     Label("Selected", systemImage: "checkmark.circle.fill")
@@ -58,17 +47,9 @@ private struct ThemeGalleryCard: View {
                 .frame(height: 42)
             .accessibilityHidden(true)
 
-            if theme.isPremium {
-                HStack {
-                    if canSelect {
-                        Button(isSelected ? "Selected" : "Use theme", action: select)
-                            .disabled(isSelected)
-                    }
-                    Button("Preview", action: preview)
-                }
-            } else {
-                Button(isSelected ? "Selected" : "Use theme", action: select)
-                    .disabled(isSelected)
+            HStack {
+                Button(isSelected ? "Selected" : "Use theme", action: select).disabled(isSelected)
+                Button("Preview", action: preview)
             }
         }
         .padding(9)
@@ -78,11 +59,11 @@ private struct ThemeGalleryCard: View {
                 .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: isSelected ? 2 : 1)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(theme.name) theme\(theme.isPremium ? ", Pro" : "")\(isSelected ? ", selected" : "")")
+        .accessibilityLabel("\(theme.name) theme\(isSelected ? ", selected" : "")")
     }
 }
 
-struct ProThemePreviewSheet: View {
+struct ThemePreviewSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @State private var selectedTheme: UsageTheme
@@ -112,7 +93,7 @@ struct ProThemePreviewSheet: View {
             .padding()
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))], spacing: 7) {
-                ForEach(UsageTheme.all.filter(\.isPremium)) { theme in
+                ForEach(UsageTheme.all) { theme in
                     Button(theme.name) { selectedTheme = theme }
                         .buttonStyle(.bordered)
                         .tint(selectedTheme.id == theme.id ? palette.accent : nil)
@@ -269,7 +250,7 @@ struct ThemeExportPreview: View {
                         .foregroundStyle(palette.secondaryText)
                 }
                 Spacer()
-                Text(theme.isPremium ? "PRO PREVIEW" : "FREE")
+                Text("SAMPLE PREVIEW")
                     .font(.caption.weight(.bold))
                     .padding(.horizontal, 9).padding(.vertical, 5)
                     .background(palette.selectedTab, in: Capsule())

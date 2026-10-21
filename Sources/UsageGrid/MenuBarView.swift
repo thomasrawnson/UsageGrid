@@ -10,7 +10,6 @@ struct MenuBarView: View {
     @Bindable var alerts: UsageAlertController
     @Bindable var themePreferences: ThemePreferences
     @Bindable var history: UsageHistoryController
-    @Bindable var proAccess: ProAccessController
     @State private var selectedProvider: SelectedProvider = .codex
     @State private var presentation = PopupPresentationState()
 
@@ -55,9 +54,6 @@ struct MenuBarView: View {
             claude.refresh()
         }
         .onDisappear { presentation.popupDismissed() }
-        .onChange(of: proAccess.effectiveAccess.canViewUsageHistory) { _, canViewHistory in
-            presentation.accessChanged(canViewHistory: canViewHistory)
-        }
     }
 
     private var popupHeight: CGFloat {
@@ -134,14 +130,6 @@ struct MenuBarView: View {
 
     private var usagePanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-
-            #if DEBUG
-            if proAccess.isDeveloperSimulationActive {
-                Label("Developer Pro simulation", systemImage: "hammer.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(palette.warning)
-            }
-            #endif
 
             HStack(spacing: 0) {
                 providerTab(.codex)
@@ -259,7 +247,6 @@ struct MenuBarView: View {
 
             if selectedProvider == .codex {
                 VStack(alignment: .leading, spacing: 5) {
-                    if proAccess.effectiveAccess.canViewUsageHistory {
                         RecordedHistorySection(
                             history: history,
                             palette: palette,
@@ -271,12 +258,6 @@ struct MenuBarView: View {
                             Button("View history") { presentation.showHistory() }
                             Button("Preview sample") { presentation.showHistoryPreview() }
                         }
-                    } else {
-                        Text(history.isRecording ? "History recording on · viewing planned for Pro" : "History recording off")
-                            .font(.caption)
-                        Button("Preview usage history") { presentation.showHistoryPreview() }
-                            .foregroundStyle(palette.accent)
-                    }
                 }
                 .foregroundStyle(palette.secondaryText)
                 .buttonStyle(.plain)
@@ -450,9 +431,6 @@ struct PopupPresentationState {
     mutating func showHistoryPreview() { page = .historyPreview }
     mutating func showUsage() { page = .usage }
     mutating func popupDismissed() { page = .usage }
-    mutating func accessChanged(canViewHistory: Bool) {
-        if !canViewHistory && page == .history { page = .usage }
-    }
 }
 
 struct CodexRefreshState {

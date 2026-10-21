@@ -8,10 +8,6 @@ struct SettingsView: View {
     @Bindable var alerts: UsageAlertController
     @Bindable var themePreferences: ThemePreferences
     @Bindable var history: UsageHistoryController
-    @Bindable var proAccess: ProAccessController
-    #if DEBUG
-    @Bindable var testLicense: ProLicenseController
-    #endif
     @State private var status = SMAppService.mainApp.status
     @State private var errorMessage: String?
     @State private var previewTheme: UsageTheme?
@@ -51,7 +47,7 @@ struct SettingsView: View {
             Task { await alerts.refreshPermissionStatus() }
         }
         .sheet(item: $previewTheme) { theme in
-            ProThemePreviewSheet(theme: theme)
+            ThemePreviewSheet(theme: theme)
         }
         .sheet(isPresented: $showingHistoryPreview) {
             UsageHistoryPreviewSheet(theme: themePreferences.activeTheme)
@@ -88,7 +84,6 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-
             Section("Menu bar display") {
                 Picker("Menu bar display", selection: $preferences.displayMode) {
                     ForEach(MenuBarDisplayMode.allCases) { mode in
@@ -105,31 +100,6 @@ struct SettingsView: View {
                 }
             }
 
-            #if DEBUG
-            Section("Developer testing") {
-                Toggle("Simulate Pro access", isOn: $proAccess.isDeveloperProSimulationEnabled)
-                Text(proAccess.isDeveloperProSimulationEnabled
-                     ? "Developer Pro simulation"
-                     : "Simulation off · normal Free access")
-                    .font(.caption)
-                    .foregroundStyle(proAccess.isDeveloperProSimulationEnabled ? .orange : .secondary)
-                Text("Debug-only and held in memory. This is not a purchase or production entitlement and resets when UsageGrid quits.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Effective access: \(proAccess.activeAccessDescription)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Lemon Squeezy test licensing") {
-                Text("Debug-only test mode · Store 485681 · Product 1395768 · Variant 2179685")
-                    .font(.caption.weight(.semibold))
-                Text("Uses online validation and a dedicated test Keychain item. It is separate from Pro simulation and is not production purchasing.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ProLicenseActivationView(controller: testLicense)
-            }
-            #endif
         }
         .formStyle(.grouped)
     }
@@ -137,29 +107,15 @@ struct SettingsView: View {
     private var appearanceSettings: some View {
         Form {
             Section("Appearance") {
-                ThemeGalleryView(preferences: themePreferences, proAccess: proAccess, previewTheme: $previewTheme)
-                Text(proAccess.effectiveAccess.hasProEntitlement
-                     ? "Pro themes can be applied to live usage and recorded history. Sample previews remain isolated from real data."
-                     : "Free themes can be selected immediately. Pro themes are available as isolated sample previews and do not change live usage or your saved theme.")
+                ThemeGalleryView(preferences: themePreferences, previewTheme: $previewTheme)
+                Text("All six themes can be applied to live usage. Previews use isolated sample data.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("Free and Pro") {
-                VStack(alignment: .leading, spacing: 10) {
-                    featureSummary(title: "Free", systemImage: "checkmark.circle", features: "Live Codex usage, menu-bar display, Programming and Professional themes, and primary threshold alerts.")
-                    Divider()
-                    featureSummary(title: "UsageGrid Pro", systemImage: "sparkles", features: "Premium themes, real history and session views, secondary threshold alerts, and confirmed reset notifications.")
-                }
-                Text("History recording is optional, local to this Mac, and off by default.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("One-off purchase planned. Purchasing is not available yet.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("Preview themes") {
-                    previewTheme = UsageTheme.lookup(UsageThemeID.retro.rawValue)
-                }
+            Section("Theme previews") {
+                Text("Preview themes with sample data without changing your saved selection.")
+                Button("Preview themes") { previewTheme = UsageTheme.lookup(UsageThemeID.retro.rawValue) }
             }
         }
         .formStyle(.grouped)
@@ -169,9 +125,7 @@ struct SettingsView: View {
         Form {
             Section("Usage History") {
                 Toggle("Record usage history on this Mac", isOn: $history.isRecording)
-                Text(proAccess.effectiveAccess.canViewUsageHistory
-                     ? "Optional and off by default. Recording occurs only while UsageGrid is running. Real history is available in the menu-bar popup while effective Pro access is active."
-                     : "Optional and off by default. Recording is local and occurs only while UsageGrid is running. Real history and session views require Pro.")
+                Text("Optional and off by default. Recording occurs only while UsageGrid is running. View recorded history in the menu-bar popup.")
                     .font(.caption).foregroundStyle(.secondary)
                 Text("Stores only observation time, window type and duration, reset time, and percentage used for up to seven days. It describes observed account usage, not activity attributable to this Mac, app, or task.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -207,58 +161,44 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(!alerts.preferences.enabled)
-                    if proAccess.effectiveAccess.canUseResetAlerts {
-                        Toggle("Notify when window resets", isOn: Binding(
-                            get: { alerts.preferences.primaryResetEnabled },
-                            set: { enabled in Task { await alerts.setPrimaryResetEnabled(enabled) } }
-                        ))
-                    }
+                    Toggle("Notify when window resets", isOn: Binding(
+                        get: { alerts.preferences.primaryResetEnabled },
+                        set: { enabled in Task { await alerts.setPrimaryResetEnabled(enabled) } }
+                    ))
                 }
 
-                if proAccess.effectiveAccess.canUseSecondaryAlerts {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(alertWindowTitle("secondary", fallback: "Secondary window"))
-                            .font(.headline)
-                        if codex.windows?.contains(where: { $0.id == "secondary" }) != true {
-                            Text("Window unavailable").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Toggle("Alert when usage reaches threshold", isOn: Binding(
-                            get: { alerts.preferences.secondaryEnabled },
-                            set: { enabled in Task { await alerts.setSecondaryEnabled(enabled) } }
-                        ))
-                        Picker("Threshold", selection: Binding(
-                            get: { alerts.preferences.secondaryThreshold },
-                            set: { alerts.preferences.secondaryThreshold = $0 }
-                        )) {
-                            ForEach(UsageAlertThreshold.allCases) { threshold in
-                                Text(threshold.title).tag(threshold)
-                            }
-                        }
-                        .disabled(!alerts.preferences.secondaryEnabled)
-                        Toggle("Notify when window resets", isOn: Binding(
-                            get: { alerts.preferences.secondaryResetEnabled },
-                            set: { enabled in Task { await alerts.setSecondaryResetEnabled(enabled) } }
-                        ))
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(alertWindowTitle("secondary", fallback: "Secondary window"))
+                        .font(.headline)
+                    if codex.windows?.contains(where: { $0.id == "secondary" }) != true {
+                        Text("Window unavailable").font(.caption).foregroundStyle(.secondary)
                     }
-                } else {
-                    Text("Secondary-window threshold alerts require Pro.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Toggle("Alert when usage reaches threshold", isOn: Binding(
+                        get: { alerts.preferences.secondaryEnabled },
+                        set: { enabled in Task { await alerts.setSecondaryEnabled(enabled) } }
+                    ))
+                    Picker("Threshold", selection: Binding(
+                        get: { alerts.preferences.secondaryThreshold },
+                        set: { alerts.preferences.secondaryThreshold = $0 }
+                    )) {
+                        ForEach(UsageAlertThreshold.allCases) { threshold in
+                            Text(threshold.title).tag(threshold)
+                        }
+                    }
+                    .disabled(!alerts.preferences.secondaryEnabled)
+                    Toggle("Notify when window resets", isOn: Binding(
+                        get: { alerts.preferences.secondaryResetEnabled },
+                        set: { enabled in Task { await alerts.setSecondaryResetEnabled(enabled) } }
+                    ))
                 }
-
                 Text("Each threshold means percentage used, regardless of the menu-bar display preference.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if proAccess.effectiveAccess.canUseResetAlerts {
-                    Text("Reset alerts arrive only after UsageGrid observes a confirmed rollover while running, which may be later than the displayed reset time.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Confirmed primary and secondary reset notifications require Pro.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Reset alerts arrive only after UsageGrid observes a confirmed rollover while running, which may be later than the displayed reset time.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Text(alerts.permissionMessage)
                     .font(.caption)
@@ -314,7 +254,7 @@ struct SettingsView: View {
             }
 
             Section("Support diagnostics") {
-                SupportDiagnosticsView(codex: codex, history: history, proAccess: proAccess)
+                SupportDiagnosticsView(codex: codex, history: history)
             }
 
             Section("About") {
@@ -323,21 +263,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-    }
-
-    private func featureSummary(title: String, systemImage: String, features: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: systemImage)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                Text(features)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .accessibilityElement(children: .combine)
     }
 
     private func refreshStatus() {

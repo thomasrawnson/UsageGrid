@@ -18,7 +18,6 @@
 		A1000000000000000000000B /* UsageHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001B /* UsageHistory.swift */; };
 		A1000000000000000000000C /* UsageHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001C /* UsageHistoryView.swift */; };
 		A1000000000000000000000D /* SupportDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001D /* SupportDiagnostics.swift */; };
-		A1000000000000000000000E /* ProLicensing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001E /* ProLicensing.swift */; };
 		A1000000000000000000000F /* ClaudeUsageCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001F /* ClaudeUsageCore.swift */; };
 		A10000000000000000000024 /* ClaudeUsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000025 /* ClaudeUsageProvider.swift */; };
 		A10000000000000000000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000015 /* Assets.xcassets */; };
@@ -39,7 +38,6 @@
 		A1000000000000000000001B /* UsageHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageHistory.swift; sourceTree = "<group>"; };
 		A1000000000000000000001C /* UsageHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageHistoryView.swift; sourceTree = "<group>"; };
 		A1000000000000000000001D /* SupportDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportDiagnostics.swift; sourceTree = "<group>"; };
-		A1000000000000000000001E /* ProLicensing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProLicensing.swift; sourceTree = "<group>"; };
 		A1000000000000000000001F /* ClaudeUsageCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ClaudeUsageCore.swift; path = ../UsageGridClaudeCore/ClaudeUsageCore.swift; sourceTree = "<group>"; };
 		A10000000000000000000025 /* ClaudeUsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeUsageProvider.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -69,7 +67,6 @@
 				A1000000000000000000001B /* UsageHistory.swift */,
 				A1000000000000000000001C /* UsageHistoryView.swift */,
 				A1000000000000000000001D /* SupportDiagnostics.swift */,
-				A1000000000000000000001E /* ProLicensing.swift */,
 				A1000000000000000000001F /* ClaudeUsageCore.swift */,
 				A10000000000000000000025 /* ClaudeUsageProvider.swift */,
 			);
@@ -152,7 +149,6 @@
 				A1000000000000000000000B /* UsageHistory.swift in Sources */,
 				A1000000000000000000000C /* UsageHistoryView.swift in Sources */,
 				A1000000000000000000000D /* SupportDiagnostics.swift in Sources */,
-				A1000000000000000000000E /* ProLicensing.swift in Sources */,
 				A1000000000000000000000F /* ClaudeUsageCore.swift in Sources */,
 				A10000000000000000000024 /* ClaudeUsageProvider.swift in Sources */,
 			);

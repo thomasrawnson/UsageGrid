@@ -146,7 +146,6 @@ final class UsageAlertPreferences {
 final class UsageAlertController {
     let preferences: UsageAlertPreferences
     private let notifications: any UsageAlertNotificationProviding
-    private let hasEffectiveProAccess: @MainActor () -> Bool
 
     private(set) var permissionStatus: UsageAlertPermissionStatus = .notDetermined
     private(set) var deliveryError: String?
@@ -160,12 +159,10 @@ final class UsageAlertController {
 
     init(
         preferences: UsageAlertPreferences = UsageAlertPreferences(),
-        notifications: any UsageAlertNotificationProviding = SystemUsageAlertNotifications(),
-        hasEffectiveProAccess: @escaping @MainActor () -> Bool = { false }
+        notifications: any UsageAlertNotificationProviding = SystemUsageAlertNotifications()
     ) {
         self.preferences = preferences
         self.notifications = notifications
-        self.hasEffectiveProAccess = hasEffectiveProAccess
     }
 
     var permissionMessage: String {
@@ -215,11 +212,9 @@ final class UsageAlertController {
             setPreference(false, for: window)
             return
         }
-        guard window != .secondary || hasEffectiveProAccess() else { return }
 
         let status = await notifications.permissionStatus()
         guard actionRevision == userActionRevision else { return }
-        guard window != .secondary || hasEffectiveProAccess() else { return }
         switch status {
         case .authorized:
             permissionStatus = .authorized
@@ -234,7 +229,6 @@ final class UsageAlertController {
             do {
                 let granted = try await notifications.requestPermission()
                 guard actionRevision == userActionRevision else { return }
-                guard window != .secondary || hasEffectiveProAccess() else { return }
                 permissionStatus = granted ? .authorized : .denied
                 setPreference(granted, for: window)
             } catch {
@@ -256,10 +250,8 @@ final class UsageAlertController {
             setResetPreference(false, for: window)
             return
         }
-        guard hasEffectiveProAccess() else { return }
-
         let status = await notifications.permissionStatus()
-        guard actionRevision == userActionRevision, hasEffectiveProAccess() else { return }
+        guard actionRevision == userActionRevision else { return }
         switch status {
         case .authorized:
             permissionStatus = .authorized
@@ -273,7 +265,7 @@ final class UsageAlertController {
         case .notDetermined:
             do {
                 let granted = try await notifications.requestPermission()
-                guard actionRevision == userActionRevision, hasEffectiveProAccess() else { return }
+                guard actionRevision == userActionRevision else { return }
                 permissionStatus = granted ? .authorized : .denied
                 setResetPreference(granted, for: window)
             } catch {
@@ -326,16 +318,12 @@ final class UsageAlertController {
         if preferences.enabled, let primary = windows.first(where: { $0.id == AlertWindow.primary.rawValue }) {
             delivered = await evaluate(primary, as: .primary, observedAt: observedAt) || delivered
         }
-        if hasEffectiveProAccess(), preferences.secondaryEnabled,
+        if preferences.secondaryEnabled,
            let secondary = windows.first(where: { $0.id == AlertWindow.secondary.rawValue }) {
             delivered = await evaluate(secondary, as: .secondary, observedAt: observedAt) || delivered
         }
-        if hasEffectiveProAccess() {
-            delivered = await evaluateReset(windows.first(where: { $0.id == AlertWindow.primary.rawValue }), as: .primary, observedAt: observedAt) || delivered
-            delivered = await evaluateReset(windows.first(where: { $0.id == AlertWindow.secondary.rawValue }), as: .secondary, observedAt: observedAt) || delivered
-        } else {
-            resetBaselines.removeAll()
-        }
+        delivered = await evaluateReset(windows.first(where: { $0.id == AlertWindow.primary.rawValue }), as: .primary, observedAt: observedAt) || delivered
+        delivered = await evaluateReset(windows.first(where: { $0.id == AlertWindow.secondary.rawValue }), as: .secondary, observedAt: observedAt) || delivered
         return delivered
     }
 
@@ -366,8 +354,7 @@ final class UsageAlertController {
         let currentPermission = await notifications.permissionStatus()
         if actionRevision == userActionRevision { permissionStatus = currentPermission }
         guard currentPermission == .authorized,
-              isEnabled(window),
-              window != .secondary || hasEffectiveProAccess() else { return false }
+              isEnabled(window) else { return false }
 
         let used = min(100, max(0, Int(usage.usedPercentage.rounded())))
         let remaining = 100 - used
@@ -419,7 +406,7 @@ final class UsageAlertController {
         let currentPermission = await notifications.permissionStatus()
         if actionRevision == userActionRevision { permissionStatus = currentPermission }
         guard currentPermission == .authorized,
-              hasEffectiveProAccess(), isResetEnabled(window) else { return false }
+              isResetEnabled(window) else { return false }
 
         let used = min(100, max(0, Int(usage.usedPercentage.rounded())))
         let remaining = 100 - used
@@ -449,7 +436,7 @@ final class UsageAlertController {
     }
 
     private var hasAnyEnabledAlert: Bool {
-        preferences.enabled || (hasEffectiveProAccess() && (preferences.secondaryEnabled || preferences.primaryResetEnabled || preferences.secondaryResetEnabled))
+        preferences.enabled || preferences.secondaryEnabled || preferences.primaryResetEnabled || preferences.secondaryResetEnabled
     }
 
     private func isResetEnabled(_ window: AlertWindow) -> Bool {

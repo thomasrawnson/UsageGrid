@@ -16,15 +16,14 @@ enum UsageThemeID: String, CaseIterable, Identifiable {
 struct UsageTheme: Identifiable, Equatable {
     let id: UsageThemeID
     let name: String
-    let isPremium: Bool
 
     static let all: [UsageTheme] = [
-        UsageTheme(id: .programming, name: "Programming", isPremium: false),
-        UsageTheme(id: .professional, name: "Professional", isPremium: false),
-        UsageTheme(id: .retro, name: "90s Retro", isPremium: true),
-        UsageTheme(id: .anime, name: "Anime", isPremium: true),
-        UsageTheme(id: .zenForest, name: "Zen Forest", isPremium: true),
-        UsageTheme(id: .space, name: "Space", isPremium: true)
+        UsageTheme(id: .programming, name: "Programming"),
+        UsageTheme(id: .professional, name: "Professional"),
+        UsageTheme(id: .retro, name: "90s Retro"),
+        UsageTheme(id: .anime, name: "Anime"),
+        UsageTheme(id: .zenForest, name: "Zen Forest"),
+        UsageTheme(id: .space, name: "Space")
     ]
 
     static let defaultTheme = all[0]
@@ -37,76 +36,24 @@ struct UsageTheme: Identifiable, Equatable {
     }
 }
 
-struct ThemeAccess: Equatable {
-    let hasProEntitlement: Bool
-
-    static let production = ThemeAccess(hasProEntitlement: false)
-
-    func canSelect(_ theme: UsageTheme) -> Bool {
-        !theme.isPremium || hasProEntitlement
-    }
-
-    var canViewUsageHistory: Bool { hasProEntitlement }
-    var canUseSecondaryAlerts: Bool { hasProEntitlement }
-    var canUseResetAlerts: Bool { hasProEntitlement }
-}
-
-@Observable
-final class ProAccessController {
-    /// Placeholder for the future verified purchase entitlement source.
-    /// It intentionally remains false until purchasing is implemented.
-    private let hasVerifiedPurchaseEntitlement: Bool
-
-    #if DEBUG
-    var isDeveloperProSimulationEnabled = false
-    private(set) var hasVerifiedTestLicense = false
-    #endif
-
-    init(hasVerifiedPurchaseEntitlement: Bool = false) {
-        self.hasVerifiedPurchaseEntitlement = hasVerifiedPurchaseEntitlement
-    }
-
-    var effectiveAccess: ThemeAccess {
-        #if DEBUG
-        ThemeAccess(hasProEntitlement: hasVerifiedPurchaseEntitlement || isDeveloperProSimulationEnabled || hasVerifiedTestLicense)
-        #else
-        ThemeAccess(hasProEntitlement: hasVerifiedPurchaseEntitlement)
-        #endif
-    }
-
-    #if DEBUG
-    var isDeveloperSimulationActive: Bool { isDeveloperProSimulationEnabled }
-    var activeAccessDescription: String {
-        if isDeveloperProSimulationEnabled && hasVerifiedTestLicense { return "Debug simulation + verified test licence" }
-        if isDeveloperProSimulationEnabled { return "Debug simulation" }
-        if hasVerifiedTestLicense { return "Verified Lemon Squeezy test licence" }
-        return "Free"
-    }
-    func setVerifiedTestLicense(_ verified: Bool) { hasVerifiedTestLicense = verified }
-    #endif
-}
-
 @Observable
 final class ThemePreferences {
     static let activeThemeKey = "activeUsageTheme"
 
     private let defaults: UserDefaults
-    private let access: ProAccessController
     private var savedTheme: UsageTheme
 
-    init(defaults: UserDefaults = .standard, access: ProAccessController = ProAccessController()) {
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.access = access
         savedTheme = UsageTheme.lookup(defaults.string(forKey: Self.activeThemeKey))
     }
 
     var activeTheme: UsageTheme {
-        access.effectiveAccess.canSelect(savedTheme) ? savedTheme : .defaultTheme
+        savedTheme
     }
 
     @discardableResult
     func select(_ theme: UsageTheme) -> Bool {
-        guard access.effectiveAccess.canSelect(theme) else { return false }
         savedTheme = theme
         defaults.set(theme.id.rawValue, forKey: Self.activeThemeKey)
         return true

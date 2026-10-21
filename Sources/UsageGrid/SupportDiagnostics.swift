@@ -26,8 +26,6 @@ struct SupportDiagnosticsInput {
     let notificationSettings: SupportNotificationSettings?
     let historyRecordingEnabled: Bool
     let historyHasStorageError: Bool
-    let hasProAccess: Bool
-    let isDebugSimulation: Bool
 }
 
 enum SupportDiagnosticsReport {
@@ -52,15 +50,6 @@ enum SupportDiagnosticsReport {
 
         let safeError = safeErrorDescription(input.lastError)
         let notifications = input.notificationSettings
-        let access: String
-        if input.isDebugSimulation {
-            access = "Pro (Debug simulation; not a purchase)"
-        } else if input.hasProAccess {
-            access = "Pro (verified entitlement)"
-        } else {
-            access = "Free"
-        }
-
         return [
             "UsageGrid Support Diagnostics",
             "App version: \(known(input.appVersion))",
@@ -77,8 +66,7 @@ enum SupportDiagnosticsReport {
             "Notification alerts: \(known(notifications?.alerts))",
             "Notification Centre: \(known(notifications?.notificationCentre))",
             "History recording: \(input.historyRecordingEnabled ? "Enabled" : "Disabled")",
-            "History storage: \(input.historyHasStorageError ? "Unavailable (local storage error)" : "Available")",
-            "Access: \(access)"
+            "History storage: \(input.historyHasStorageError ? "Unavailable (local storage error)" : "Available")"
         ].joined(separator: "\n")
     }
 
@@ -151,7 +139,6 @@ enum SupportNotificationSettingsReader {
 struct SupportDiagnosticsView: View {
     @Bindable var codex: CodexRefreshCoordinator
     @Bindable var history: UsageHistoryController
-    @Bindable var proAccess: ProAccessController
     @State private var report = "Preparing diagnostics…"
     @State private var copyMessage: String?
 
@@ -198,12 +185,6 @@ struct SupportDiagnosticsView: View {
         let architecture: String? = nil
         #endif
 
-        #if DEBUG
-        let debugSimulation = proAccess.isDeveloperSimulationActive
-        #else
-        let debugSimulation = false
-        #endif
-
         let executableSource: String?
         if codex.lastError == .executableNotFound { executableSource = "Unavailable" }
         else if codex.windows != nil || codex.lastError != nil { executableSource = "ChatGPT bundled Codex" }
@@ -223,9 +204,7 @@ struct SupportDiagnosticsView: View {
             executableSource: executableSource,
             notificationSettings: notifications,
             historyRecordingEnabled: history.isRecording,
-            historyHasStorageError: history.storageError != nil,
-            hasProAccess: proAccess.effectiveAccess.hasProEntitlement,
-            isDebugSimulation: debugSimulation
+            historyHasStorageError: history.storageError != nil
         )
     }
 
