@@ -11,7 +11,17 @@ UsageGrid is a free, open-source macOS menu-bar utility that shows AI coding quo
 - Optional primary/secondary threshold and observed-reset notifications, with separate saved settings.
 - Menu-bar percentage display, Launch at Login, and privacy-safe support diagnostics.
 
-Screenshots from UI verification are in docs/rendered-history-previews and docs/rendered-ui-fix. They are rendered fixtures, not proof of full interaction or accessibility.
+## Screenshots
+
+Actual macOS captures of UsageGrid, showing the menu-bar popup, optional recorded history, and selectable themes. Usage values shown are point-in-time examples, not live readings. Claude support remains experimental.
+
+| 90s Retro usage and history | Appearance themes |
+| --- | --- |
+| <img src="docs/screenshots/retro-usage-history.png" alt="UsageGrid 90s Retro theme with a Codex weekly quota grid and recorded seven-day history graph" width="320"> | <img src="docs/screenshots/appearance-themes.png" alt="Appearance settings showing Programming, Professional, 90s Retro, Anime, Zen Forest and Space themes" width="480"> |
+
+[Retro popup with Codex and experimental Claude tabs](docs/screenshots/retro-usage-with-tabs.png) · [Programming theme and recorded history](docs/screenshots/programming-usage-history.png)
+
+Earlier screenshots from UI verification are in `docs/rendered-history-previews` and `docs/rendered-ui-fix`. Those are rendered fixtures, not proof of full interaction or accessibility.
 
 ## Requirements and build
 
