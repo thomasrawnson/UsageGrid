@@ -196,7 +196,7 @@ struct MenuBarView: View {
                 .foregroundStyle(palette.secondaryText)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Experimental passive snapshot integration. It does not refresh Claude usage independently.")
+                    Text("Passive snapshot integration. It does not refresh Claude usage independently.")
                         .font(.caption)
                     if let windows = claude.windows {
                         if claude.isStale {
@@ -407,14 +407,14 @@ enum SelectedProvider {
     var selectorTitle: String {
         switch self {
         case .codex: "Codex"
-        case .claude: "Claude — Experimental"
+        case .claude: "Claude"
         }
     }
 
     var accessibilityLabel: String {
         switch self {
         case .codex: "Codex provider"
-        case .claude: "Claude provider, experimental passive snapshot"
+        case .claude: "Claude provider, passive snapshot"
         }
     }
 }

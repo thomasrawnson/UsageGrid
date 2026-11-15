@@ -638,8 +638,8 @@ actor TestHistoryStore: UsageHistoryPersisting {
 @Test func providerSelectorLabelsClaudeAsExperimentalAndPreservesCodexPresentation() {
     #expect(SelectedProvider.codex.selectorTitle == "Codex")
     #expect(SelectedProvider.codex.accessibilityLabel == "Codex provider")
-    #expect(SelectedProvider.claude.selectorTitle == "Claude — Experimental")
-    #expect(SelectedProvider.claude.accessibilityLabel.contains("experimental passive snapshot"))
+    #expect(SelectedProvider.claude.selectorTitle == "Claude")
+    #expect(SelectedProvider.claude.accessibilityLabel.contains("passive snapshot"))
 }
 
 @Test func usageWindowAccessibilityUsesActualProviderAndCompleteWindowDetails() {

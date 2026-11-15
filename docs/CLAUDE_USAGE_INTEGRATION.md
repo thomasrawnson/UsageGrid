@@ -1,6 +1,6 @@
 # Claude usage integration proof
 
-UsageGrid can passively capture the [documented Claude Code status-line quota fields](https://code.claude.com/docs/en/statusline). It requires the Claude Code CLI and a subscription/session eligible to receive those usage fields. It does not call Anthropic, read Claude credentials, send prompts, or modify Claude Code settings. The integration is opt-in, experimental, and is not production approval.
+UsageGrid can passively capture the [documented Claude Code status-line quota fields](https://code.claude.com/docs/en/statusline). It requires the Claude Code CLI and a subscription/session eligible to receive those usage fields. It does not call Anthropic, read Claude credentials, send prompts, or modify Claude Code settings. The integration is opt-in and is not an official provider integration.
 
 UsageGrid cannot determine from the absence of a snapshot whether Claude Code is installed, authenticated, configured, or currently returning eligible usage fields. The in-app Claude panel therefore reports these as possible causes rather than claiming a specific diagnosis.
 
