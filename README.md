@@ -43,6 +43,21 @@ Install ChatGPT in /Applications and sign in to Codex for the same macOS user. O
 
 Claude support is an **experimental passive snapshot** integration, not an independently refreshed connection or official provider integration. Build the UsageGridClaudeCapture helper, configure Claude Code's single status-line command using the coexistence wrapper, and retain a backup of any existing status line. UsageGrid never edits Claude Code settings. Its Refresh button only rereads the local snapshot. A missing snapshot cannot establish whether Claude Code is installed, signed in, eligible, configured, or returning supported fields. Setup templates and reversible removal steps are in [Claude Usage Integration](docs/CLAUDE_USAGE_INTEGRATION.md).
 
+### Quick start (verified working)
+
+1. Build the helper and copy it somewhere stable:
+
+       swift build -c release --product UsageGridClaudeCapture
+       mkdir -p ~/.claude/usagegrid && cp .build/release/UsageGridClaudeCapture ~/.claude/usagegrid/
+
+2. Back up `~/.claude/settings.json`, then add this (merge it into your existing settings; if you already have a `statusLine`, use the wrapper in the integration guide instead):
+
+       "statusLine": { "type": "command", "command": "/Users/YOU/.claude/usagegrid/UsageGridClaudeCapture --display" }
+
+3. Start `claude` in Terminal and send a message. The status line should show your 5-hour and weekly percentages, and the Claude tab in UsageGrid shows them after you press Refresh.
+
+Requirements and limits: quota fields are only supplied for Claude Pro, Max and Ultra plans, and only after the first response in a session. The snapshot updates only while an interactive Claude Code session is running the status line, so the Claude tab goes stale after about two minutes of inactivity.
+
 ## Privacy and local data
 
 UsageGrid does not upload usage history, prompts, account identifiers, or provider credentials. Codex requests run through the local bundled executable. Claude snapshot capture stores only supported quota fields in a restricted local file. History is optional, stored in Application Support, and can be cleared in Settings. Diagnostics show allowlisted state and remain on this Mac unless copied. Notifications are requested only when alerts are enabled. UsageGrid's retired test-licensing Keychain entries are not read or modified by this version; provider authentication is unchanged.
