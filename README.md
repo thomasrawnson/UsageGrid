@@ -56,7 +56,7 @@ Claude support is a **passive snapshot** integration, not an independently refre
 
 3. Start `claude` in Terminal and send a message. The status line should show your 5-hour and weekly percentages, and the Claude tab in UsageGrid shows them after you press Refresh.
 
-Requirements and limits: quota fields are only supplied for Claude Pro, Max and Ultra plans, and only after the first response in a session. The snapshot updates only while an interactive Claude Code session is running the status line, so the Claude tab goes stale after about two minutes of inactivity.
+Requirements and limits: quota fields are only supplied for Claude Pro, Max and Ultra plans, and only after the first response in a session. The snapshot updates only when a Claude Code session in a terminal (the `claude` CLI) runs the status line, which happens after replies. In testing, sessions in the Claude desktop app did not trigger it, and IDE extensions are untested, so use the terminal CLI for Claude data. The Claude tab shows a stale label after about two minutes without a new capture.
 
 ## Privacy and local data
 
